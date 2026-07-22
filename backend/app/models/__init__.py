@@ -1,5 +1,10 @@
 """Database models package.
 
-This package will contain the application's SQLAlchemy ORM models. It is
-currently empty; no models have been implemented yet.
+Importing this package ensures all ORM models are registered on
+`Base.metadata`, which is required for Alembic autogeneration to detect
+them.
 """
+
+from app.models.user import User
+
+__all__ = ["User"]
