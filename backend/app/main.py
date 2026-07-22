@@ -1,24 +1,19 @@
 """Application entry point.
 
-Initializes application-wide logging and registers the request logging
-middleware. This module intentionally contains no business logic.
+Initializes application-wide logging, registers the request logging
+middleware, and includes the API routers.
 """
 
 from fastapi import FastAPI
 
+from app.api.v1.auth import router as auth_router
 from app.core.logging import setup_logging
 from app.core.middleware import RequestLoggingMiddleware
 
-def create_application() -> FastAPI:
-    setup_logging()
+setup_logging()
 
-    app = FastAPI()
-
-    app.add_middleware(RequestLoggingMiddleware)
-
-    return app
-
-
-app = create_application()
+app = FastAPI()
 
 app.add_middleware(RequestLoggingMiddleware)
+
+app.include_router(auth_router)

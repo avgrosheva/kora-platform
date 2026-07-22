@@ -22,6 +22,7 @@ dependencies = [
     "alembic>=1.13",
     "pyjwt>=2.9",
     "pwdlib[argon2]>=0.2",
+    "email-validator>=2.2",
 ]
 
 [dependency-groups]
