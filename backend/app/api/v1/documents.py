@@ -26,6 +26,28 @@ from app.services.document_service import (
     UnsupportedFileTypeError,
 )
 
+from app.schemas.document_analysis import DocumentAnalysisRead
+from app.services.ai_service import (
+    AIRequestFailedError,
+    AIServiceNotConfiguredError,
+    InvalidAIResponseError,
+)
+from app.services.document_analysis_service import (
+    AnalysisNotFoundError,
+    DocumentAnalysisService,
+    DocumentNotProcessedError,
+    DocumentAnalysis,
+)
+
+from app.schemas.financial_metrics import FinancialMetricsRead
+from app.services.financial_analysis_service import (
+    BusinessAnalysisRequiredError,
+    FinancialAnalysisService,
+    FinancialMetricsNotFoundError,
+)
+
+from app.models.financial_metrics import FinancialMetrics
+
 settings = get_settings()
 
 router = APIRouter(prefix=f"{settings.API_V1_PREFIX}/documents", tags=["documents"])
@@ -197,6 +219,189 @@ async def process_document(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
         ) from exc
 
+@router.post(
+    "/{document_id}/analyze",
+    response_model=DocumentAnalysisRead,
+    summary="Run AI analysis on a processed document",
+)
+async def analyze_document(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> DocumentAnalysis:
+    """Analyze a processed document and produce structured business
+    information using AI.
+
+    Runs synchronously; the response reflects the completed analysis.
+    Re-running this endpoint overwrites the document's existing
+    analysis, since each document has at most one.
+
+    Args:
+        document_id: The document's id.
+        db: The request-scoped database session.
+        current_user: The authenticated user.
+
+    Returns:
+        The resulting structured analysis.
+
+    Raises:
+        HTTPException: With status 404 if the document does not exist
+            or the user is not a member of its organization; 409 if the
+            document's text has not finished processing; 503 if the AI
+            service is not configured; 502 if the AI request fails or
+            returns an invalid response.
+    """
+    try:
+        return await DocumentAnalysisService.analyze_document(
+            db=db, document_id=document_id, actor_id=current_user.id
+        )
+    except DocumentNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    except DocumentNotProcessedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    except AIServiceNotConfiguredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    except (InvalidAIResponseError, AIRequestFailedError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
+        ) from exc
+
+
+@router.get(
+    "/{document_id}/analysis",
+    response_model=DocumentAnalysisRead,
+    summary="Get a document's AI analysis",
+)
+async def get_document_analysis(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> DocumentAnalysis:
+    """Fetch a document's previously generated AI analysis.
+
+    Args:
+        document_id: The document's id.
+        db: The request-scoped database session.
+        current_user: The authenticated user.
+
+    Returns:
+        The document's structured analysis.
+
+    Raises:
+        HTTPException: With status 404 if the document does not exist,
+            the user is not a member of its organization, or the
+            document has not been analyzed yet.
+    """
+    try:
+        return await DocumentAnalysisService.get_analysis(
+            db=db, document_id=document_id, actor_id=current_user.id
+        )
+    except DocumentNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    except AnalysisNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+
+@router.post(
+    "/{document_id}/financial-analysis",
+    response_model=FinancialMetricsRead,
+    summary="Run AI financial extraction on an analyzed document",
+)
+async def analyze_financial_metrics(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> FinancialMetrics:
+    """Extract structured financial KPIs from a document using AI.
+
+    Requires that the document's business analysis
+    (`POST /documents/{id}/analyze`) has already been run. Runs
+    synchronously; re-running this endpoint overwrites the document's
+    existing financial metrics, since each document has at most one.
+
+    Args:
+        document_id: The document's id.
+        db: The request-scoped database session.
+        current_user: The authenticated user.
+
+    Returns:
+        The resulting structured financial metrics.
+
+    Raises:
+        HTTPException: With status 404 if the document does not exist
+            or the user is not a member of its organization; 409 if the
+            document's business analysis has not been run yet; 503 if
+            the AI service is not configured; 502 if the AI request
+            fails or returns an invalid response.
+    """
+    try:
+        return await FinancialAnalysisService.analyze_financial_metrics(
+            db=db, document_id=document_id, actor_id=current_user.id
+        )
+    except DocumentNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    except BusinessAnalysisRequiredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    except AIServiceNotConfiguredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    except (InvalidAIResponseError, AIRequestFailedError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
+        ) from exc
+
+
+@router.get(
+    "/{document_id}/financial-analysis",
+    response_model=FinancialMetricsRead,
+    summary="Get a document's financial metrics",
+)
+async def get_financial_metrics(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> FinancialMetrics:
+    """Fetch a document's previously extracted financial metrics.
+
+    Args:
+        document_id: The document's id.
+        db: The request-scoped database session.
+        current_user: The authenticated user.
+
+    Returns:
+        The document's structured financial metrics.
+
+    Raises:
+        HTTPException: With status 404 if the document does not exist,
+            the user is not a member of its organization, or financial
+            analysis has not been run yet.
+    """
+    try:
+        return await FinancialAnalysisService.get_financial_metrics(
+            db=db, document_id=document_id, actor_id=current_user.id
+        )
+    except DocumentNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    except FinancialMetricsNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
 
 @router.delete(
     "/{document_id}",
