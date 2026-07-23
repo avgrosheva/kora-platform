@@ -22,6 +22,7 @@ from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.models.user import User
+    from app.models.document import Document
 
 _SLUG_SANITIZE_PATTERN = re.compile(r"[^a-z0-9]+")
 
@@ -108,6 +109,10 @@ class Organization(Base):
         back_populates="organization",
         cascade="all, delete-orphan",
     )
+    documents: Mapped[list["Document"]] = relationship(
+        back_populates="organization",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self) -> str:
         """Return a debug-friendly representation of the organization.
@@ -119,7 +124,7 @@ class Organization(Base):
 
 
 class Membership(Base):
-    """Represents a user's membership and role within an organization.
+    """Represents a user's membership and role within an organizationorganization.
 
     Attributes:
         id: Primary key, a randomly generated UUID.
@@ -165,6 +170,7 @@ class Membership(Base):
             native_enum=False,
             validate_strings=True,
             length=20,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
         ),
         nullable=False,
         default=MembershipRole.MEMBER,
@@ -232,6 +238,7 @@ class OrganizationInvitation(Base):
             native_enum=False,
             validate_strings=True,
             length=20,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
         ),
         nullable=False,
         default=MembershipRole.MEMBER,

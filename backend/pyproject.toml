@@ -23,6 +23,7 @@ dependencies = [
     "pyjwt>=2.9",
     "pwdlib[argon2]>=0.2",
     "email-validator>=2.2",
+    "pypdf>=6.14.2",
 ]
 
 [dependency-groups]
@@ -32,4 +33,6 @@ dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "ruff>=0.15.22",
+    "python-multipart>=0.0.9",
+    "pypdf>=5.0",
 ]
