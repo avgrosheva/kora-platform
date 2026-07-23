@@ -13,6 +13,8 @@ from sqlalchemy.sql import func
 from app.db.base import Base
 
 if TYPE_CHECKING:
+    from app.models.document_analysis import DocumentAnalysis
+    from app.models.financial_metrics import FinancialMetrics
     from app.models.organization import Organization
     from app.models.user import User
 
@@ -129,6 +131,18 @@ class Document(Base):
         nullable=False,
         server_default=func.now(),
         onupdate=func.now(),
+    )
+
+    analysis: Mapped["DocumentAnalysis | None"] = relationship(
+        back_populates="document",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+
+    financial_metrics: Mapped["FinancialMetrics | None"] = relationship(
+        back_populates="document",
+        uselist=False,
+        cascade="all, delete-orphan",
     )
 
     organization: Mapped["Organization"] = relationship(back_populates="documents")

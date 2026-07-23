@@ -6,6 +6,8 @@ them.
 """
 
 from app.models.document import Document
+from app.models.document_analysis import DocumentAnalysis
+from app.models.financial_metrics import FinancialMetrics
 from app.models.organization import Membership, Organization, OrganizationInvitation
 from app.models.user import User
 
@@ -15,4 +17,6 @@ __all__ = [
     "Membership",
     "OrganizationInvitation",
     "Document",
+    "DocumentAnalysis",
+    "FinancialMetrics",
 ]
