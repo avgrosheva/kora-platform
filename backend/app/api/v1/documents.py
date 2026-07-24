@@ -48,6 +48,14 @@ from app.services.financial_analysis_service import (
 
 from app.models.financial_metrics import FinancialMetrics
 
+from app.schemas.investment_score import InvestmentScoreResponse
+from app.services.investment_scoring_service import (
+    InsufficientDataForScoringError,
+    InvestmentScore,
+    InvestmentScoreNotFoundError,
+    InvestmentScoringService,
+)
+
 settings = get_settings()
 
 router = APIRouter(prefix=f"{settings.API_V1_PREFIX}/documents", tags=["documents"])
@@ -408,6 +416,7 @@ async def get_financial_metrics(
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete a document",
 )
+
 async def delete_document(
     document_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -441,4 +450,87 @@ async def delete_document(
     except InsufficientPermissionsError as exc:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)
+        ) from exc
+
+@router.post(
+    "/{document_id}/score",
+    response_model=InvestmentScoreResponse,
+    summary="Calculate or recalculate a document's investment score",
+)
+async def calculate_investment_score(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> InvestmentScore:
+    """Calculate (or recalculate) a document's investment score.
+
+    Uses only already-persisted financial metrics and business
+    analysis; makes no external or AI calls. Re-running this endpoint
+    overwrites the document's existing score, since each document has
+    at most one.
+
+    Args:
+        document_id: The document's id.
+        db: The request-scoped database session.
+        current_user: The authenticated user.
+
+    Returns:
+        The resulting investment score.
+
+    Raises:
+        HTTPException: With status 404 if the document does not exist
+            or the user is not a member of its organization; 409 if the
+            document has neither financial metrics nor a business
+            analysis to score from.
+    """
+    try:
+        return await InvestmentScoringService.calculate_score(
+            db=db, document_id=document_id, actor_id=current_user.id
+        )
+    except DocumentNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    except InsufficientDataForScoringError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+
+
+@router.get(
+    "/{document_id}/score",
+    response_model=InvestmentScoreResponse,
+    summary="Get a document's investment score",
+)
+async def get_investment_score(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> InvestmentScore:
+    """Fetch a document's previously calculated investment score.
+
+    Args:
+        document_id: The document's id.
+        db: The request-scoped database session.
+        current_user: The authenticated user.
+
+    Returns:
+        The document's investment score.
+
+    Raises:
+        HTTPException: With status 404 if the document does not exist,
+            the user is not a member of its organization, or the
+            document has not been scored yet.
+    """
+    try:
+        return await InvestmentScoringService.get_score(
+            db=db, document_id=document_id, actor_id=current_user.id
+        )
+    except DocumentNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    except InvestmentScoreNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
         ) from exc

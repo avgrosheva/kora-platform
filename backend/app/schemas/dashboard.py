@@ -65,6 +65,53 @@ class TopCompany(BaseModel):
     arr: float
     currency: str | None
 
+class ScoredCompany(BaseModel):
+    """A document/company ranked by overall investment score.
+
+    Attributes:
+        document_id: The id of the scored document.
+        company_name: The company's name, or `None` if not identified.
+        overall_score: The document's overall investment score (0-100).
+    """
+
+    document_id: uuid.UUID
+    company_name: str | None
+    overall_score: float
+
+
+class HighestGrowthCompany(BaseModel):
+    """The document/company with the highest known growth rate.
+
+    Attributes:
+        document_id: The id of the document.
+        company_name: The company's name, or `None` if not identified.
+        growth_rate: The company's growth rate (%). Always non-null,
+            since this record only exists when at least one document
+            has a known growth rate.
+    """
+
+    document_id: uuid.UUID
+    company_name: str | None
+    growth_rate: float
+
+
+class HighestRiskCompany(BaseModel):
+    """The document/company with the highest risk (i.e. the lowest
+    `risk_score`) among scored documents.
+
+    Attributes:
+        document_id: The id of the document.
+        company_name: The company's name, or `None` if not identified.
+        risk_score: The company's risk (stability) sub-score (0-100).
+            Always non-null. Note this is the *lowest* `risk_score` in
+            the organization — since higher `risk_score` means safer,
+            the lowest value represents the highest actual risk.
+    """
+
+    document_id: uuid.UUID
+    company_name: str | None
+    risk_score: float
+
 
 class RecentDocument(BaseModel):
     """A recently uploaded document, for the dashboard's activity feed.
@@ -112,17 +159,30 @@ class DashboardResponse(DashboardSummary):
 
     Inherits every field from `DashboardSummary` (flattened into this
     model's own top-level fields) and adds the top company, recent
-    documents, and portfolio statistics. All computation (averages,
-    rankings, thresholds) happens server-side in `DashboardService` —
-    the frontend performs no calculations on this payload.
+    documents, portfolio statistics, and investment-scoring rollups. All
+    computation happens server-side in `DashboardService` — the
+    frontend performs no calculations on this payload.
 
     Attributes:
         top_company: The company with the highest known ARR, or `None`
             if no document in the organization has a known ARR.
         recent_documents: The most recently uploaded documents.
         portfolio_stats: Portfolio-wide health indicators.
+        top_scored_companies: Up to 5 documents with the highest overall
+            investment scores, highest first.
+        average_investment_score: The average overall investment score
+            across all scored documents, or `None` if none are scored.
+        highest_growth_company: The document with the highest known
+            growth rate, or `None` if none have a known growth rate.
+        highest_risk_company: The scored document with the lowest
+            `risk_score` (i.e. highest actual risk), or `None` if no
+            document has been scored with a risk component.
     """
 
     top_company: TopCompany | None
     recent_documents: list[RecentDocument]
     portfolio_stats: PortfolioStats
+    top_scored_companies: list[ScoredCompany]
+    average_investment_score: float | None
+    highest_growth_company: HighestGrowthCompany | None
+    highest_risk_company: HighestRiskCompany | None

@@ -35,8 +35,21 @@ from app.schemas.dashboard import (
     TopCompany,
 )
 
+from app.models.investment_score import InvestmentScore
+from app.schemas.dashboard import (
+    DashboardResponse,
+    DashboardSummary,
+    HighestGrowthCompany,
+    HighestRiskCompany,
+    PortfolioStats,
+    RecentDocument,
+    ScoredCompany,
+    TopCompany,
+)
+
 RECENT_DOCUMENTS_LIMIT = 5
 LOW_RUNWAY_THRESHOLD_MONTHS = 6.0
+TOP_SCORED_COMPANIES_LIMIT = 5
 
 
 class DashboardServiceError(Exception):
@@ -83,7 +96,7 @@ async def _require_membership(
 
 async def _fetch_summary_and_portfolio_stats(
     db: AsyncSession, organization_id: uuid.UUID
-) -> tuple[DashboardSummary, PortfolioStats]:
+) -> tuple[DashboardSummary, PortfolioStats, float | None]:
     """Compute all scalar counts and averages in a single aggregate query.
 
     Args:
@@ -91,7 +104,7 @@ async def _fetch_summary_and_portfolio_stats(
         organization_id: The organization's id.
 
     Returns:
-        A tuple of `(DashboardSummary, PortfolioStats)`.
+        A tuple of `(DashboardSummary, PortfolioStats, average_investment_score)`.
     """
     stmt = (
         select(
@@ -110,6 +123,9 @@ async def _fetch_summary_and_portfolio_stats(
             func.avg(FinancialMetrics.confidence_score).label(
                 "average_confidence_score"
             ),
+            func.avg(InvestmentScore.overall_score).label(
+                "average_investment_score"
+            ),
             func.count()
             .filter(FinancialMetrics.growth_rate > 0)
             .label("companies_with_positive_growth"),
@@ -126,6 +142,9 @@ async def _fetch_summary_and_portfolio_stats(
         )
         .outerjoin(
             FinancialMetrics, FinancialMetrics.document_id == Document.id
+        )
+        .outerjoin(
+            InvestmentScore, InvestmentScore.document_id == Document.id
         )
         .where(Document.organization_id == organization_id)
     )
@@ -148,7 +167,7 @@ async def _fetch_summary_and_portfolio_stats(
         companies_low_runway=row.companies_low_runway,
         average_confidence_score=row.average_confidence_score,
     )
-    return summary, portfolio_stats
+    return summary, portfolio_stats, row.average_investment_score
 
 
 async def _fetch_top_company(
@@ -196,6 +215,139 @@ async def _fetch_top_company(
         currency=row.currency,
     )
 
+async def _fetch_top_scored_companies(
+    db: AsyncSession, organization_id: uuid.UUID
+) -> list[ScoredCompany]:
+    """Fetch the documents with the highest overall investment scores.
+
+    Args:
+        db: The active database session.
+        organization_id: The organization's id.
+
+    Returns:
+        Up to `TOP_SCORED_COMPANIES_LIMIT` scored documents, highest
+        score first.
+    """
+    stmt = (
+        select(
+            InvestmentScore.document_id,
+            InvestmentScore.overall_score,
+            DocumentAnalysis.company_name,
+        )
+        .select_from(InvestmentScore)
+        .join(Document, Document.id == InvestmentScore.document_id)
+        .outerjoin(
+            DocumentAnalysis,
+            DocumentAnalysis.document_id == InvestmentScore.document_id,
+        )
+        .where(
+            Document.organization_id == organization_id,
+            InvestmentScore.overall_score.is_not(None),
+        )
+        .order_by(InvestmentScore.overall_score.desc())
+        .limit(TOP_SCORED_COMPANIES_LIMIT)
+    )
+
+    rows = (await db.execute(stmt)).all()
+    return [
+        ScoredCompany(
+            document_id=row.document_id,
+            company_name=row.company_name,
+            overall_score=row.overall_score,
+        )
+        for row in rows
+    ]
+
+
+async def _fetch_highest_growth_company(
+    db: AsyncSession, organization_id: uuid.UUID
+) -> HighestGrowthCompany | None:
+    """Fetch the document with the highest known growth rate.
+
+    Args:
+        db: The active database session.
+        organization_id: The organization's id.
+
+    Returns:
+        The `HighestGrowthCompany`, or `None` if no document has a
+        known growth rate.
+    """
+    stmt = (
+        select(
+            FinancialMetrics.document_id,
+            FinancialMetrics.growth_rate,
+            DocumentAnalysis.company_name,
+        )
+        .select_from(FinancialMetrics)
+        .join(Document, Document.id == FinancialMetrics.document_id)
+        .outerjoin(
+            DocumentAnalysis,
+            DocumentAnalysis.document_id == FinancialMetrics.document_id,
+        )
+        .where(
+            Document.organization_id == organization_id,
+            FinancialMetrics.growth_rate.is_not(None),
+        )
+        .order_by(FinancialMetrics.growth_rate.desc())
+        .limit(1)
+    )
+
+    row = (await db.execute(stmt)).one_or_none()
+    if row is None:
+        return None
+
+    return HighestGrowthCompany(
+        document_id=row.document_id,
+        company_name=row.company_name,
+        growth_rate=row.growth_rate,
+    )
+
+
+async def _fetch_highest_risk_company(
+    db: AsyncSession, organization_id: uuid.UUID
+) -> HighestRiskCompany | None:
+    """Fetch the scored document with the lowest `risk_score`.
+
+    The lowest `risk_score` represents the highest actual risk, since
+    `risk_score` measures stability/safety (higher is safer).
+
+    Args:
+        db: The active database session.
+        organization_id: The organization's id.
+
+    Returns:
+        The `HighestRiskCompany`, or `None` if no document has been
+        scored with a risk component.
+    """
+    stmt = (
+        select(
+            InvestmentScore.document_id,
+            InvestmentScore.risk_score,
+            DocumentAnalysis.company_name,
+        )
+        .select_from(InvestmentScore)
+        .join(Document, Document.id == InvestmentScore.document_id)
+        .outerjoin(
+            DocumentAnalysis,
+            DocumentAnalysis.document_id == InvestmentScore.document_id,
+        )
+        .where(
+            Document.organization_id == organization_id,
+            InvestmentScore.risk_score.is_not(None),
+        )
+        .order_by(InvestmentScore.risk_score.asc())
+        .limit(1)
+    )
+
+    row = (await db.execute(stmt)).one_or_none()
+    if row is None:
+        return None
+
+    return HighestRiskCompany(
+        document_id=row.document_id,
+        company_name=row.company_name,
+        risk_score=row.risk_score,
+    )
 
 async def _fetch_recent_documents(
     db: AsyncSession, organization_id: uuid.UUID
@@ -242,15 +394,28 @@ class DashboardService:
         """
         await _require_membership(db, organization_id, actor_id)
 
-        summary, portfolio_stats = await _fetch_summary_and_portfolio_stats(
-            db, organization_id
+        summary, portfolio_stats, average_investment_score = (
+            await _fetch_summary_and_portfolio_stats(db, organization_id)
         )
         top_company = await _fetch_top_company(db, organization_id)
         recent_documents = await _fetch_recent_documents(db, organization_id)
+        top_scored_companies = await _fetch_top_scored_companies(
+            db, organization_id
+        )
+        highest_growth_company = await _fetch_highest_growth_company(
+            db, organization_id
+        )
+        highest_risk_company = await _fetch_highest_risk_company(
+            db, organization_id
+        )
 
         return DashboardResponse(
             **summary.model_dump(),
             top_company=top_company,
             recent_documents=recent_documents,
             portfolio_stats=portfolio_stats,
+            top_scored_companies=top_scored_companies,
+            average_investment_score=average_investment_score,
+            highest_growth_company=highest_growth_company,
+            highest_risk_company=highest_risk_company,
         )
