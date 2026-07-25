@@ -31,6 +31,52 @@ MAX_DOCUMENT_CHARACTERS = 15_000
 _RETRY_DELAY_SECONDS = 1.0
 _CHAT_MAX_ANSWER_TOKENS = 800
 
+_DUE_DILIGENCE_SYSTEM_PROMPT = """You are a due diligence analyst producing a \
+structured investment report from the evidence provided.
+
+Return ONLY a single valid JSON object with exactly these keys, and no \
+others, each a string containing the section's content:
+
+{
+  "executive_summary": string,
+  "company_overview": string,
+  "problem": string,
+  "solution": string,
+  "business_model": string,
+  "market": string,
+  "competition": string,
+  "traction": string,
+  "financial_analysis": string,
+  "growth": string,
+  "risks": string,
+  "red_flags": string,
+  "investment_thesis": string,
+  "recommendation": string,
+  "confidence_level": string,
+  "open_questions": string
+}
+
+Rules:
+- Base every statement strictly on the structured data and document \
+excerpts provided in the user message. Never use outside knowledge, \
+and never invent, assume, or estimate facts not present in the \
+provided evidence.
+- If information needed for a section is not available in the \
+provided evidence, explicitly state "Information not available in the \
+provided materials." for that section (or the relevant part of it) \
+rather than guessing or leaving it vague.
+- When you reference a specific document excerpt, cite it by number \
+(e.g. "as stated in excerpt 2").
+- "confidence_level" should describe how much of the analysis is \
+grounded in solid evidence versus how much information was missing, \
+referencing the provided investment-score confidence figure if \
+available.
+- "red_flags" should highlight any concerning patterns, contradictions, \
+or high-risk indicators found in the evidence; if none are apparent, \
+say so explicitly rather than fabricating a concern.
+- Do not include markdown formatting, code fences, or any commentary \
+outside the JSON object. Return the JSON object only."""
+
 _T = TypeVar("_T", bound=BaseModel)
 
 _BUSINESS_SYSTEM_PROMPT = """You are a business analyst extracting structured \
@@ -131,6 +177,58 @@ class AIAnalysisResult(BaseModel):
     main_risks: list[str] | None
     growth_opportunities: list[str] | None
 
+
+class DueDiligenceReportResult(BaseModel):
+    """Strict schema for the AI's generated due diligence report.
+
+    Field names correspond to the report sections specified in the due
+    diligence milestone. Every field is free-text; the model is
+    instructed to state explicitly when evidence for a section is
+    missing, rather than fabricating content.
+
+    Attributes:
+        executive_summary: A high-level summary of the investment
+            opportunity.
+        company_overview: An overview of the company and what it does.
+        problem: The problem the company addresses.
+        solution: The company's solution to that problem.
+        business_model: How the company generates revenue.
+        market: The company's target market.
+        competition: The company's competitive landscape.
+        traction: Evidence of market traction (customers, growth, etc.).
+        financial_analysis: Analysis of the company's financial metrics.
+        growth: The company's growth trajectory and opportunities.
+        risks: The company's main risks.
+        red_flags: Concerning patterns or high-risk indicators found in
+            the evidence, or an explicit statement that none were
+            found.
+        investment_thesis: The case for (or against) investing.
+        recommendation: A recommendation based on the available
+            evidence.
+        confidence_level: How confident the analysis is, given the
+            available evidence.
+        open_questions: Questions that remain unanswered by the
+            available evidence.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    executive_summary: str
+    company_overview: str
+    problem: str
+    solution: str
+    business_model: str
+    market: str
+    competition: str
+    traction: str
+    financial_analysis: str
+    growth: str
+    risks: str
+    red_flags: str
+    investment_thesis: str
+    recommendation: str
+    confidence_level: str
+    open_questions: str
 
 class FinancialExtractionResult(BaseModel):
     """Strict schema for the AI's raw financial extraction output.
@@ -317,6 +415,39 @@ class AIService:
         ]
 
         return await _call_openai_with_retry(client, messages)
+
+    @staticmethod
+    async def generate_due_diligence_report(
+        user_message: str,
+    ) -> DueDiligenceReportResult:
+        """Generate a structured due diligence report.
+
+        Reuses the same structured-completion machinery as
+        `analyze_document_text` and `extract_financial_metrics` — only
+        the prompt and target schema differ. This is not a separate AI
+        pipeline.
+
+        Args:
+            user_message: The assembled context (structured data and
+                retrieved document excerpts) and reporting instructions.
+
+        Returns:
+            The validated due diligence report.
+
+        Raises:
+            AIServiceNotConfiguredError: If no OpenAI API key is
+                configured, or the configured key is rejected as
+                invalid.
+            AIRequestFailedError: If the request fails (timeout,
+                connection error, or rate limit) even after one retry.
+            InvalidAIResponseError: If the AI's response is not valid
+                JSON, or does not conform to the expected schema.
+        """
+        return await _run_structured_completion(
+            system_prompt=_DUE_DILIGENCE_SYSTEM_PROMPT,
+            user_message=user_message,
+            response_model=DueDiligenceReportResult,
+        )
 
 
 async def _run_structured_completion(

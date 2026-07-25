@@ -68,6 +68,13 @@ from app.services.embedding_service import (
     InvalidEmbeddingDimensionError,
 )
 
+from fastapi import Body
+from app.schemas.due_diligence import DueDiligenceRequest, DueDiligenceResponse
+from app.services.due_diligence_service import (
+    DocumentNotProcessedError as DueDiligenceDocumentNotProcessedError,
+    DueDiligenceService,
+)
+
 settings = get_settings()
 
 router = APIRouter(prefix=f"{settings.API_V1_PREFIX}/documents", tags=["documents"])
@@ -545,6 +552,74 @@ async def get_investment_score(
     except InvestmentScoreNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+
+@router.post(
+    "/{document_id}/due-diligence",
+    response_model=DueDiligenceResponse,
+    summary="Generate a complete due diligence report for a document",
+)
+async def generate_due_diligence_report(
+    document_id: uuid.UUID,
+    payload: DueDiligenceRequest | None = Body(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> DueDiligenceResponse:
+    """Generate a complete, evidence-grounded due diligence report.
+
+    Reuses existing business analysis, financial metrics, and
+    investment score data if available, plus additional retrieved
+    document excerpts. Does not re-run analysis, financial extraction,
+    or scoring — only reads what has already been computed. Runs
+    synchronously; no report is stored.
+
+    Args:
+        document_id: The document's id.
+        payload: Optional parameters (currently just `top_k`). If
+            omitted, defaults are used.
+        db: The request-scoped database session.
+        current_user: The authenticated user.
+
+    Returns:
+        The complete due diligence report.
+
+    Raises:
+        HTTPException: With status 404 if the document does not exist
+            or the user is not a member of its organization; 409 if the
+            document is not fully processed; 503 if the AI or embedding
+            service is not configured; 502 if the AI or embedding
+            request fails or returns an invalid response.
+    """
+    top_k = payload.top_k if payload is not None else DueDiligenceRequest().top_k
+
+    try:
+        return await DueDiligenceService.generate_report(
+            db=db, document_id=document_id, actor_id=current_user.id, top_k=top_k
+        )
+    except DocumentNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    except DueDiligenceDocumentNotProcessedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    except OrganizationAccessDeniedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    except (AIServiceNotConfiguredError, EmbeddingServiceNotConfiguredError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    except (
+        AIRequestFailedError,
+        InvalidAIResponseError,
+        EmbeddingRequestFailedError,
+        InvalidEmbeddingDimensionError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
         ) from exc
 
 @router.post(
