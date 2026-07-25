@@ -56,6 +56,18 @@ from app.services.investment_scoring_service import (
     InvestmentScoringService,
 )
 
+from app.schemas.rag import IndexResponse
+from app.services.document_index_service import (
+    DocumentIndexService,
+    DocumentNotProcessedError as IndexDocumentNotProcessedError,
+    NoIndexableContentError,
+)
+from app.services.embedding_service import (
+    EmbeddingRequestFailedError,
+    EmbeddingServiceNotConfiguredError,
+    InvalidEmbeddingDimensionError,
+)
+
 settings = get_settings()
 
 router = APIRouter(prefix=f"{settings.API_V1_PREFIX}/documents", tags=["documents"])
@@ -534,3 +546,62 @@ async def get_investment_score(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
         ) from exc
+
+@router.post(
+    "/{document_id}/index",
+    response_model=IndexResponse,
+    summary="Index (or reindex) a document for semantic search",
+)
+async def index_document(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> IndexResponse:
+    """Chunk, embed, and index a document's text for semantic search.
+
+    Re-running this endpoint replaces the document's existing index
+    entirely (old chunks/embeddings are deleted first), so it is safe
+    to call repeatedly, e.g. after content changes upstream.
+
+    Args:
+        document_id: The document's id.
+        db: The request-scoped database session.
+        current_user: The authenticated user.
+
+    Returns:
+        The number of chunks indexed.
+
+    Raises:
+        HTTPException: With status 404 if the document does not exist
+            or the user is not a member of its organization; 409 if the
+            document is not fully processed, or produced no indexable
+            content; 503 if the embedding service is not configured; 502
+            if the embeddings request fails or returns an invalid
+            response.
+    """
+    try:
+        chunks_indexed = await DocumentIndexService.index_document(
+            db=db, document_id=document_id, actor_id=current_user.id
+        )
+    except DocumentNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    except IndexDocumentNotProcessedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    except NoIndexableContentError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    except EmbeddingServiceNotConfiguredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    except (EmbeddingRequestFailedError, InvalidEmbeddingDimensionError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
+        ) from exc
+
+    return IndexResponse(document_id=document_id, chunks_indexed=chunks_indexed)

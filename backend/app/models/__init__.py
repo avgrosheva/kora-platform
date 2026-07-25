@@ -7,6 +7,7 @@ them.
 
 from app.models.document import Document
 from app.models.document_analysis import DocumentAnalysis
+from app.models.document_embedding import DocumentEmbedding
 from app.models.financial_metrics import FinancialMetrics
 from app.models.investment_score import InvestmentScore
 from app.models.organization import Membership, Organization, OrganizationInvitation
@@ -21,4 +22,5 @@ __all__ = [
     "DocumentAnalysis",
     "FinancialMetrics",
     "InvestmentScore",
+    "DocumentEmbedding",
 ]

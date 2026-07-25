@@ -14,6 +14,7 @@ from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.models.document_analysis import DocumentAnalysis
+    from app.models.document_embedding import DocumentEmbedding
     from app.models.financial_metrics import FinancialMetrics
     from app.models.investment_score import InvestmentScore
     from app.models.organization import Organization
@@ -149,6 +150,11 @@ class Document(Base):
     investment_score: Mapped["InvestmentScore | None"] = relationship(
         back_populates="document",
         uselist=False,
+        cascade="all, delete-orphan",
+    )
+
+    embeddings: Mapped[list["DocumentEmbedding"]] = relationship(
+        back_populates="document",
         cascade="all, delete-orphan",
     )
 
