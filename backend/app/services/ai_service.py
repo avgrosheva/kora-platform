@@ -29,6 +29,7 @@ settings = get_settings()
 REQUEST_TIMEOUT_SECONDS = 60.0
 MAX_DOCUMENT_CHARACTERS = 15_000
 _RETRY_DELAY_SECONDS = 1.0
+_CHAT_MAX_ANSWER_TOKENS = 800
 
 _T = TypeVar("_T", bound=BaseModel)
 
@@ -274,6 +275,49 @@ class AIService:
             response_model=FinancialExtractionResult,
         )
 
+    @staticmethod
+    async def generate_chat_answer(system_prompt: str, user_message: str) -> str:
+        """Generate a free-text chat answer, with no JSON schema enforced.
+
+        Unlike `analyze_document_text` and `extract_financial_metrics`,
+        this method does not force JSON-mode output or validate the
+        response against a schema — chat answers are natural-language
+        text. Shares the same retry/timeout/client machinery via
+        `_call_openai_with_retry`.
+
+        Args:
+            system_prompt: The system prompt describing how to answer.
+            user_message: The user message, typically containing the
+                question and retrieved context.
+
+        Returns:
+            The model's free-text answer.
+
+        Raises:
+            AIServiceNotConfiguredError: If no OpenAI API key is
+                configured, or the configured key is rejected as
+                invalid.
+            AIRequestFailedError: If the request fails after retrying
+                once.
+        """
+        if not settings.OPENAI_API_KEY:
+            raise AIServiceNotConfiguredError(
+                "OPENAI_API_KEY is not configured. Chat is unavailable "
+                "until an API key is set."
+            )
+
+        client = AsyncOpenAI(
+            api_key=settings.OPENAI_API_KEY,
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ]
+
+        return await _call_openai_with_retry(client, messages)
+
 
 async def _run_structured_completion(
     system_prompt: str, user_message: str, response_model: type[_T]
@@ -317,7 +361,9 @@ async def _run_structured_completion(
         {"role": "user", "content": user_message},
     ]
 
-    raw_content = await _call_openai_with_retry(client, messages)
+    raw_content = await _call_openai_with_retry(
+        client, messages, response_format={"type": "json_object"}
+    )
 
     try:
         parsed = json.loads(raw_content)
@@ -334,12 +380,20 @@ async def _run_structured_completion(
         ) from exc
 
 
-async def _call_openai_with_retry(client: AsyncOpenAI, messages: list[dict]) -> str:
+async def _call_openai_with_retry(
+    client: AsyncOpenAI,
+    messages: list[dict],
+    response_format: dict | None = None,
+) -> str:
     """Call the OpenAI chat completions API, retrying once on transient errors.
 
     Args:
         client: The configured OpenAI async client.
         messages: The chat messages to send.
+        response_format: An optional OpenAI response-format directive
+            (e.g. `{"type": "json_object"}`). Passed through unchanged
+            when provided; omitted entirely for free-text completions
+            such as chat answers.
 
     Returns:
         The raw text content of the model's response.
@@ -354,11 +408,10 @@ async def _call_openai_with_retry(client: AsyncOpenAI, messages: list[dict]) -> 
 
     for attempt in range(2):
         try:
-            response = await client.chat.completions.create(
-                model=settings.OPENAI_MODEL,
-                messages=messages,
-                response_format={"type": "json_object"},
-            )
+            kwargs: dict = {"model": settings.OPENAI_MODEL, "messages": messages}
+            if response_format is not None:
+                kwargs["response_format"] = response_format
+            response = await client.chat.completions.create(**kwargs)
             return response.choices[0].message.content or ""
         except AuthenticationError as exc:
             raise AIServiceNotConfiguredError(
