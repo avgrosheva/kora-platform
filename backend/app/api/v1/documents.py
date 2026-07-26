@@ -75,6 +75,12 @@ from app.services.due_diligence_service import (
     DueDiligenceService,
 )
 
+from fastapi import Response
+from app.services.report_export_service import (
+    ReportExportService,
+    ReportRenderingFailedError,
+)
+
 settings = get_settings()
 
 router = APIRouter(prefix=f"{settings.API_V1_PREFIX}/documents", tags=["documents"])
@@ -621,6 +627,146 @@ async def generate_due_diligence_report(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
         ) from exc
+
+@router.get(
+    "/{document_id}/report.md",
+    summary="Export a document's due diligence report as Markdown",
+    response_class=Response,
+)
+async def export_report_markdown(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> Response:
+    """Generate and download a due diligence report as Markdown.
+
+    Calls the same report generation used by
+    `POST /documents/{id}/due-diligence` exactly once; no separate AI
+    pipeline, no additional OpenAI calls beyond that single generation,
+    and nothing is persisted.
+
+    Args:
+        document_id: The document's id.
+        db: The request-scoped database session.
+        current_user: The authenticated user.
+
+    Returns:
+        The Markdown file as a downloadable attachment.
+
+    Raises:
+        HTTPException: With status 404 if the document does not exist
+            or the user is not a member of its organization; 409 if the
+            document is not fully processed; 503 if the AI or embedding
+            service is not configured; 502 if the AI or embedding
+            request fails, returns an invalid response, or PDF/Markdown
+            rendering fails.
+    """
+    try:
+        filename, content = await ReportExportService.export_markdown(
+            db, document_id, current_user.id
+        )
+    except DocumentNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    except DueDiligenceDocumentNotProcessedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    except OrganizationAccessDeniedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    except (AIServiceNotConfiguredError, EmbeddingServiceNotConfiguredError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    except (
+        AIRequestFailedError,
+        InvalidAIResponseError,
+        EmbeddingRequestFailedError,
+        InvalidEmbeddingDimensionError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
+        ) from exc
+
+    return Response(
+        content=content,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get(
+    "/{document_id}/report.pdf",
+    summary="Export a document's due diligence report as PDF",
+    response_class=Response,
+)
+async def export_report_pdf(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> Response:
+    """Generate and download a due diligence report as a PDF.
+
+    Calls the same report generation used by
+    `POST /documents/{id}/due-diligence` exactly once; no separate AI
+    pipeline, no additional OpenAI calls beyond that single generation,
+    and nothing is persisted.
+
+    Args:
+        document_id: The document's id.
+        db: The request-scoped database session.
+        current_user: The authenticated user.
+
+    Returns:
+        The PDF file as a downloadable attachment.
+
+    Raises:
+        HTTPException: With status 404 if the document does not exist
+            or the user is not a member of its organization; 409 if the
+            document is not fully processed; 503 if the AI or embedding
+            service is not configured; 502 if the AI or embedding
+            request fails, returns an invalid response, or PDF
+            rendering fails.
+    """
+    try:
+        filename, pdf_bytes = await ReportExportService.export_pdf(
+            db, document_id, current_user.id
+        )
+    except DocumentNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    except DueDiligenceDocumentNotProcessedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    except OrganizationAccessDeniedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    except (AIServiceNotConfiguredError, EmbeddingServiceNotConfiguredError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    except (
+        AIRequestFailedError,
+        InvalidAIResponseError,
+        EmbeddingRequestFailedError,
+        InvalidEmbeddingDimensionError,
+        ReportRenderingFailedError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
+        ) from exc
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 @router.post(
     "/{document_id}/index",
