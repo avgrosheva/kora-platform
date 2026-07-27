@@ -61,10 +61,12 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         start_time = time.perf_counter()
 
         logger.info(
-            "Incoming request: %s %s",
-            request.method,
-            request.url.path,
-            extra={"request_id": request_id},
+            "Incoming request",
+            extra={
+                "request_id": request_id,
+                "http_method": request.method,
+                "http_path": request.url.path,
+            },
         )
 
         try:
@@ -72,22 +74,26 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         except Exception:
             duration_ms = (time.perf_counter() - start_time) * 1000
             logger.exception(
-                "Unhandled exception for %s %s after %.2fms",
-                request.method,
-                request.url.path,
-                duration_ms,
-                extra={"request_id": request_id},
+                "Unhandled exception",
+                extra={
+                    "request_id": request_id,
+                    "http_method": request.method,
+                    "http_path": request.url.path,
+                    "duration_ms": round(duration_ms, 2),
+                },
             )
             raise
 
         duration_ms = (time.perf_counter() - start_time) * 1000
         logger.info(
-            "Completed request: %s %s status=%d duration_ms=%.2f",
-            request.method,
-            request.url.path,
-            response.status_code,
-            duration_ms,
-            extra={"request_id": request_id},
+            "Completed request",
+            extra={
+                "request_id": request_id,
+                "http_method": request.method,
+                "http_path": request.url.path,
+                "http_status": response.status_code,
+                "duration_ms": round(duration_ms, 2),
+            },
         )
 
         response.headers[_REQUEST_ID_HEADER] = request_id

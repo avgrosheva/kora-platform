@@ -298,6 +298,28 @@ class Settings(BaseSettings):
             )
         return value
 
+    @field_validator("APP_ENV")
+    @classmethod
+    def validate_production_has_no_debug(cls, value: str, info) -> str:
+        """Warn-by-construction: production should never run with DEBUG=true.
+
+        This validator alone cannot see sibling field values in Pydantic
+        v2 without a model-level validator, so the authoritative check
+        lives in `validate_settings_or_exit` below, which runs explicitly
+        at startup and can inspect the fully-built `Settings` instance.
+        This field validator is kept as a no-op passthrough placeholder
+        for symmetry with the module's validation style; the real
+        enforcement is the startup check.
+
+        Args:
+            value: The provided `APP_ENV` value.
+            info: Pydantic validation context (unused here).
+
+        Returns:
+            The unmodified `APP_ENV` value.
+        """
+        return value
+    
     @computed_field  # type: ignore[misc]
     @property
     def DATABASE_URL(self) -> str | None:
@@ -340,3 +362,53 @@ def get_settings() -> Settings:
         The cached application `Settings` instance.
     """
     return Settings()
+
+def validate_settings_or_exit() -> Settings:
+    """Validate the application's configuration, failing fast if unsafe.
+
+    Intended to be called once at application startup (see
+    `app/main.py`), before the server begins accepting requests. Checks
+    invariants that span multiple fields, which individual field
+    validators cannot express in Pydantic v2.
+
+    Returns:
+        The validated `Settings` instance, for convenience.
+
+    Raises:
+        RuntimeError: If the configuration is invalid or unsafe for the
+            declared environment (e.g. `DEBUG=true` in production, a
+            wildcard CORS origin in production).
+    """
+    settings = get_settings()
+
+    errors: list[str] = []
+
+    if settings.is_production and settings.DEBUG:
+        errors.append(
+            "DEBUG must be false when APP_ENV=production. Running with "
+            "DEBUG=true in production risks leaking internals in error "
+            "responses and stack traces."
+        )
+
+    if settings.is_production and any(
+        origin.strip() == "*" for origin in settings.CORS_ORIGINS
+    ):
+        errors.append(
+            "CORS_ORIGINS must not contain a wildcard '*' when "
+            "APP_ENV=production. List explicit allowed origins instead."
+        )
+
+    if settings.is_production and not settings.DATABASE_URL:
+        errors.append(
+            "DATABASE_URL could not be built (POSTGRES_PASSWORD is not "
+            "set). A database connection is required in production."
+        )
+
+    if errors:
+        formatted = "\n  - ".join(errors)
+        raise RuntimeError(
+            f"Invalid configuration for APP_ENV={settings.APP_ENV!r}:\n  - "
+            f"{formatted}"
+        )
+
+    return settings
