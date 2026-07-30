@@ -56,6 +56,12 @@ export default function LoginPage() {
               {loginMutation.isPending ? "Signing in…" : "Sign in"}
             </Button>
           </form>
+          <p className="mt-4 text-center text-xs text-muted-foreground">
+            Don't have an account?{" "}
+            <a href="/register" className="text-primary hover:underline">
+              Sign up
+            </a>
+          </p>
         </CardContent>
       </Card>
     </div>

@@ -140,6 +140,42 @@ present in the text.
 - Do not include markdown formatting, code fences, or any commentary. \
 Return the JSON object only."""
 
+def _create_openrouter_client() -> AsyncOpenAI:
+    if not settings.OPENROUTER_API_KEY:
+        raise AIServiceNotConfiguredError(
+            "OPENROUTER_API_KEY is not configured."
+        )
+
+    default_headers = {
+        "X-OpenRouter-Title": settings.OPENROUTER_APP_NAME,
+    }
+
+    if settings.OPENROUTER_SITE_URL:
+        default_headers["HTTP-Referer"] = settings.OPENROUTER_SITE_URL
+
+    client = AsyncOpenAI(
+        api_key=settings.OPENROUTER_API_KEY,
+        base_url=settings.OPENROUTER_BASE_URL,
+        timeout=REQUEST_TIMEOUT_SECONDS,
+        default_headers=default_headers,
+    )
+
+    logger.warning(
+        "Created OpenRouter client: configured_url=%r actual_url=%s",
+        settings.OPENROUTER_BASE_URL,
+        client.base_url,
+    )
+
+    return client
+
+client = _create_openrouter_client()
+
+logger.warning(
+    "Actual AI client base URL: %s",
+    client.base_url,
+)
+
+
 
 class AIAnalysisResult(BaseModel):
     """Strict schema for the AI's structured business analysis output.
@@ -398,16 +434,14 @@ class AIService:
             AIRequestFailedError: If the request fails after retrying
                 once.
         """
-        if not settings.OPENAI_API_KEY:
+        if not settings.OPENROUTER_API_KEY:
             raise AIServiceNotConfiguredError(
-                "OPENAI_API_KEY is not configured. Chat is unavailable "
-                "until an API key is set."
+                "OPENROUTER_API_KEY is not configured. AI analysis is "
+                "unavailable until an API key is set."
             )
 
-        client = AsyncOpenAI(
-            api_key=settings.OPENAI_API_KEY,
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        )
+        client = _create_openrouter_client()
+
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -476,16 +510,13 @@ async def _run_structured_completion(
         InvalidAIResponseError: If the response is not valid JSON, or
             does not conform to `response_model`.
     """
-    if not settings.OPENAI_API_KEY:
+    if not settings.OPENROUTER_API_KEY:
         raise AIServiceNotConfiguredError(
-            "OPENAI_API_KEY is not configured. AI analysis is "
+            "OPENROUTER_API_KEY is not configured. AI analysis is "
             "unavailable until an API key is set."
         )
 
-    client = AsyncOpenAI(
-        api_key=settings.OPENAI_API_KEY,
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
+    client = _create_openrouter_client()
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -539,19 +570,28 @@ async def _call_openai_with_retry(
 
     for attempt in range(2):
         try:
-            kwargs: dict = {"model": settings.OPENAI_MODEL, "messages": messages}
+            kwargs: dict = {
+                "model": settings.OPENROUTER_CHAT_MODEL,
+                "messages": messages,
+                }
             if response_format is not None:
                 kwargs["response_format"] = response_format
             response = await client.chat.completions.create(**kwargs)
             return response.choices[0].message.content or ""
         except AuthenticationError as exc:
+            logger.exception(
+                "OpenRouter authentication error: status=%r body=%r message=%s",
+                getattr(exc, "status_code", None),
+                getattr(exc, "body", None),
+                exc,
+            )
             raise AIServiceNotConfiguredError(
-                "OpenAI rejected the configured API key as invalid."
+                f"OpenRouter authentication failed: {exc}"
             ) from exc
         except (APITimeoutError, APIConnectionError, RateLimitError) as exc:
             last_error = exc
             logger.warning(
-                "OpenAI request failed (attempt %d/2): %s", attempt + 1, exc
+                "OpenRouter request failed (attempt %d/2): %s", attempt + 1, exc
             )
             if attempt == 0:
                 await asyncio.sleep(_RETRY_DELAY_SECONDS)

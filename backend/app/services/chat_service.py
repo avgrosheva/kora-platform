@@ -188,5 +188,5 @@ class ChatService:
         return ChatResponse(
             answer=answer_text.strip(),
             sources=sources,
-            model_used=settings.OPENAI_MODEL,
+            model_used=settings.OPENROUTER_CHAT_MODEL,
         )

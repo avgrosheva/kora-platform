@@ -130,20 +130,44 @@ class Settings(BaseSettings):
     )
 
     # ------------------------------------------------------------------
-    # AI
+    # AI / OpenRouter
     # ------------------------------------------------------------------
-    OPENAI_API_KEY: str | None = Field(
+    OPENROUTER_API_KEY: str | None = Field(
         default=None,
-        description=(
-            "API key used to authenticate with OpenAI. Optional while "
-            "the OpenAI integration is not yet implemented; the "
-            "application can start without it."
-        ),
+        description="API key used to authenticate with OpenRouter.",
     )
-    OPENAI_MODEL: str = Field(
-        default="gpt-4o-mini",
-        description="Default OpenAI model identifier to use.",
+
+    OPENROUTER_BASE_URL: str = Field(
+        default="https://openrouter.ai/api/v1",
+        description="Base URL for the OpenRouter OpenAI-compatible API.",
     )
+
+    OPENROUTER_CHAT_MODEL: str = Field(
+        default="openai/gpt-4o-mini",
+        description="OpenRouter model identifier used for chat completions.",
+    )
+
+    OPENROUTER_EMBEDDING_MODEL: str = Field(
+        default="openai/text-embedding-3-small",
+        description="OpenRouter model identifier used for embeddings.",
+    )
+
+    EMBEDDING_DIMENSIONS: int = Field(
+        default=1536,
+        gt=0,
+        description="Expected embedding vector dimensions.",
+    )
+
+    OPENROUTER_SITE_URL: str | None = Field(
+        default=None,
+        description="Optional public URL sent to OpenRouter as HTTP-Referer.",
+    )
+
+    OPENROUTER_APP_NAME: str = Field(
+        default="kora",
+        description="Application name sent to OpenRouter.",
+    )
+
 
     # ------------------------------------------------------------------
     # API
@@ -268,35 +292,29 @@ class Settings(BaseSettings):
             raise ValueError("POSTGRES_PASSWORD must not be an empty string.")
         return value
 
-    @field_validator("OPENAI_API_KEY")
+    @field_validator("OPENROUTER_API_KEY")
     @classmethod
-    def validate_openai_api_key_not_placeholder(
+    def validate_openrouter_api_key_not_placeholder(
         cls, value: str | None
     ) -> str | None:
-        """Reject the placeholder value for `OPENAI_API_KEY` when provided.
+        """Reject placeholder OpenRouter API keys."""
 
-        Since OpenAI is not yet integrated, `OPENAI_API_KEY` is optional.
-        Validation is only performed when a value is actually provided;
-        `None` is passed through unchanged.
-
-        Args:
-            value: The provided `OPENAI_API_KEY` value, or `None`.
-
-        Returns:
-            The validated `OPENAI_API_KEY` value, or `None`.
-
-        Raises:
-            ValueError: If the value is the known placeholder used in
-                `.env.example`.
-        """
         if value is None:
             return None
-        if value.strip().lower() == "your_openai_api_key_here":
+
+        normalized = value.strip().lower()
+
+        if normalized in {
+            "your_openrouter_api_key_here",
+            "sk-or-v1-your-key-here",
+        }:
             raise ValueError(
-                "OPENAI_API_KEY must not be a placeholder value. "
-                "Provide a real OpenAI API key in your .env file."
+                "OPENROUTER_API_KEY must not be a placeholder value. "
+                "Provide a real OpenRouter API key in your .env file."
             )
+
         return value
+
 
     @field_validator("APP_ENV")
     @classmethod

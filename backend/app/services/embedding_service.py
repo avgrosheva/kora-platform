@@ -21,6 +21,7 @@ from openai import (
 
 from app.config import get_settings
 from app.core.logging import get_logger
+
 from app.core.rag_config import EMBEDDING_DIMENSIONS
 
 logger = get_logger(__name__)
@@ -67,7 +68,7 @@ class EmbeddingProvider(ABC):
         """
 
 
-class OpenAIEmbeddingProvider(EmbeddingProvider):
+class OpenRouterEmbeddingProvider(EmbeddingProvider):
     """Generates embeddings via the OpenAI Embeddings API.
 
     Requests are batched to respect API limits, and each batch is
@@ -76,7 +77,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
     `ai_service.py`.
     """
 
-    MODEL = "text-embedding-3-small"
+    # MODEL = "text-embedding-3-small"
     MAX_BATCH_SIZE = 100
     REQUEST_TIMEOUT_SECONDS = 60.0
 
@@ -101,16 +102,26 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         if not texts:
             return []
 
-        if not settings.OPENAI_API_KEY:
+        if not settings.OPENROUTER_API_KEY:
             raise EmbeddingServiceNotConfiguredError(
-                "OPENAI_API_KEY is not configured. Embedding generation "
+                "OPENROUTER_API_KEY is not configured. Embedding generation "
                 "is unavailable until an API key is set."
-            )
+                )
+
+        default_headers = {
+            "X-OpenRouter-Title": settings.OPENROUTER_APP_NAME,
+        }
+
+        if settings.OPENROUTER_SITE_URL:
+            default_headers["HTTP-Referer"] = settings.OPENROUTER_SITE_URL
 
         client = AsyncOpenAI(
-            api_key=settings.OPENAI_API_KEY,
+            api_key=settings.OPENROUTER_API_KEY,
+            base_url=settings.OPENROUTER_BASE_URL,
             timeout=self.REQUEST_TIMEOUT_SECONDS,
+            default_headers=default_headers,
         )
+
 
         all_vectors: list[list[float]] = []
         for start in range(0, len(texts), self.MAX_BATCH_SIZE):
@@ -145,20 +156,23 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         for attempt in range(2):
             try:
                 response = await client.embeddings.create(
-                    model=self.MODEL, input=batch
+                    model=settings.OPENROUTER_EMBEDDING_MODEL,
+                    input=batch,
+                    dimensions=EMBEDDING_DIMENSIONS,
                 )
+
                 vectors = [item.embedding for item in response.data]
                 for vector in vectors:
-                    if len(vector) != EMBEDDING_DIMENSIONS:
+                    if len(vector) != settings.EMBEDDING_DIMENSIONS:
                         raise InvalidEmbeddingDimensionError(
                             f"Expected an embedding with "
-                            f"{EMBEDDING_DIMENSIONS} dimensions, got "
+                            f"{settings.EMBEDDING_DIMENSIONS} dimensions, got "
                             f"{len(vector)}."
                         )
-                return vectors
+                    return vectors
             except AuthenticationError as exc:
                 raise EmbeddingServiceNotConfiguredError(
-                    "OpenAI rejected the configured API key as invalid."
+                    "OpenRouter rejected the configured API key as invalid."
                 ) from exc
             except (APITimeoutError, APIConnectionError, RateLimitError) as exc:
                 last_error = exc
@@ -175,7 +189,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         ) from last_error
 
 
-_default_provider = OpenAIEmbeddingProvider()
+_default_provider = OpenRouterEmbeddingProvider()
 
 
 class EmbeddingService:
@@ -190,7 +204,7 @@ class EmbeddingService:
         Args:
             texts: The texts to embed, in order.
             provider: The embedding provider to use. Defaults to
-                `OpenAIEmbeddingProvider`. Accepting this as a parameter
+                `OpenRouterEmbeddingProvider`. Accepting this as a parameter
                 is what allows a future embedding backend to be
                 substituted with no change to callers.
 

@@ -482,4 +482,4 @@ def _current_model_name() -> str:
     """
     from app.config import get_settings
 
-    return get_settings().OPENAI_MODEL
+    return get_settings().OPENROUTER_CHAT_MODEL
