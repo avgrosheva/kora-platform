@@ -8,9 +8,11 @@ them.
 from app.models.document import Document
 from app.models.document_analysis import DocumentAnalysis
 from app.models.document_embedding import DocumentEmbedding
+from app.models.financial_fact import FinancialFact
 from app.models.financial_metrics import FinancialMetrics
 from app.models.investment_score import InvestmentScore
 from app.models.organization import Membership, Organization, OrganizationInvitation
+from app.models.source_citation import SourceCitation
 from app.models.user import User
 
 __all__ = [
@@ -23,4 +25,6 @@ __all__ = [
     "FinancialMetrics",
     "InvestmentScore",
     "DocumentEmbedding",
+    "FinancialFact",
+    "SourceCitation",
 ]

@@ -15,9 +15,11 @@ from app.db.base import Base
 if TYPE_CHECKING:
     from app.models.document_analysis import DocumentAnalysis
     from app.models.document_embedding import DocumentEmbedding
+    from app.models.financial_fact import FinancialFact
     from app.models.financial_metrics import FinancialMetrics
     from app.models.investment_score import InvestmentScore
     from app.models.organization import Organization
+    from app.models.source_citation import SourceCitation
     from app.models.user import User
 
 
@@ -160,6 +162,15 @@ class Document(Base):
 
     organization: Mapped["Organization"] = relationship(back_populates="documents")
     uploader: Mapped["User"] = relationship()
+
+    financial_facts: Mapped[list["FinancialFact"]] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan",
+    )
+    citations: Mapped[list["SourceCitation"]] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self) -> str:
         """Return a debug-friendly representation of the document.

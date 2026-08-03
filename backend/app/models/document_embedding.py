@@ -38,6 +38,11 @@ class DocumentEmbedding(Base):
         created_at: Timezone-aware timestamp when this chunk/embedding
             was created.
         document: The related `Document`.
+
+        page_number: The page number (1-indexed) in the source document
+            this chunk's text came from, or `None` if the document has
+            no page concept (e.g. `.txt`), or if this chunk was created
+            before page tracking was added (pre-migration documents).
     """
 
     __tablename__ = "document_embeddings"
@@ -54,6 +59,7 @@ class DocumentEmbedding(Base):
         index=True,
     )
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     embedding: Mapped[list[float]] = mapped_column(
         Vector(EMBEDDING_DIMENSIONS), nullable=False

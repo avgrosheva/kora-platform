@@ -255,7 +255,7 @@ dev = [
     { name = "openai", specifier = ">=1.50" },
     { name = "pgvector", specifier = ">=0.3" },
     { name = "pypdf", specifier = ">=5.0" },
-    { name = "pytest", specifier = ">=9.1.1" },
+    { name = "pytest", specifier = ">=8.3" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "ruff", specifier = ">=0.15.22" },
