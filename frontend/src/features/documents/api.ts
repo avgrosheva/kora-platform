@@ -5,8 +5,13 @@ import type {
   DocumentListResponse,
   DocumentRead,
   DueDiligenceResponse,
+  DueDiligenceV2Response,
   FinancialMetricsRead,
   InvestmentScoreResponse,
+  MetricsResponse,
+  ValidationChecksResponse,
+  CoverageAssessmentRead,
+  MissingInformationResponse,
 } from "@/types/api";
 
 async function fetchOrNull<T>(fn: () => Promise<T>): Promise<T | null> {
@@ -119,4 +124,46 @@ export const documentsApi = {
     });
     downloadBlob(response.data, parseFilename(response.headers["content-disposition"], fallbackName));
   },
+
+  getMetrics: async (documentId: string): Promise<MetricsResponse> => {
+    const { data } = await apiClient.get<MetricsResponse>(`/documents/${documentId}/metrics`);
+    return data;
+  },
+
+  getChecks: async (documentId: string): Promise<ValidationChecksResponse> => {
+    const { data } = await apiClient.get<ValidationChecksResponse>(`/documents/${documentId}/checks`);
+    return data;
+  },
+
+  getCoverage: async (documentId: string): Promise<CoverageAssessmentRead> => {
+    const { data } = await apiClient.get<CoverageAssessmentRead>(`/documents/${documentId}/coverage`);
+    return data;
+  },
+
+  getMissingInformation: async (documentId: string): Promise<MissingInformationResponse> => {
+    const { data } = await apiClient.get<MissingInformationResponse>(
+      `/documents/${documentId}/missing-information`
+    );
+    return data;
+  },
+
+  extractFinancialFacts: async (documentId: string): Promise<{ document_id: string; facts_extracted: number }> => {
+    const { data } = await apiClient.post(`/documents/${documentId}/extract-financial-facts`);
+    return data;
+  },
+
+  analyzeWithCitations: async (documentId: string): Promise<DocumentAnalysisRead> => {
+    const { data } = await apiClient.post<DocumentAnalysisRead>(
+      `/documents/${documentId}/analyze-with-citations`
+    );
+    return data;
+  },
+
+  generateDueDiligenceV2: async (documentId: string): Promise<DueDiligenceV2Response> => {
+    const { data } = await apiClient.post<DueDiligenceV2Response>(
+      `/documents/${documentId}/due-diligence-v2`
+    );
+    return data;
+  },
+  
 };

@@ -28,6 +28,8 @@ from app.models.financial_metrics import FinancialMetrics
 from app.models.investment_score import InvestmentScore
 from app.services.document_service import DocumentNotFoundError, DocumentService
 
+from app.core.scoring_config import SCORE_WEIGHTS, SCORING_METHODOLOGY_VERSION
+
 # Weights used to combine sub-scores into `overall_score`. `team_score`
 # is intentionally excluded: it is always `None` in the current data
 # model (see `InvestmentScore.team_score` docstring), so it never
@@ -81,6 +83,8 @@ class ScoringResult:
     team_score: float | None
     confidence_score: float | None
     reasoning: str
+    methodology_version: str = SCORING_METHODOLOGY_VERSION
+    category_breakdown: dict | None = None
 
 
 class ScoringStrategy(ABC):
@@ -109,6 +113,8 @@ class ScoringStrategy(ABC):
             The computed `ScoringResult`.
         """
 
+        
+
 
 def _clamp(value: float, low: float = 0.0, high: float = 100.0) -> float:
     """Clamp a value into the inclusive `[low, high]` range.
@@ -123,6 +129,37 @@ def _clamp(value: float, low: float = 0.0, high: float = 100.0) -> float:
     """
     return max(low, min(high, value))
 
+def _build_category_breakdown(
+        financial_score, growth_score, risk_score, market_score, team_score
+    ) -> dict:
+        """Build the transparent per-category breakdown (Section 6).
+
+        Returns:
+            A dict keyed by category, each with score, weight, whether it
+            contributed, and its weighted contribution to the overall
+            score — or `"not_assessable"` status if the category had no
+            data.
+        """
+        scores = {
+            "financial_score": financial_score, "growth_score": growth_score,
+            "risk_score": risk_score, "market_score": market_score, "team_score": team_score,
+        }
+        present = {k: v for k, v in scores.items() if v is not None}
+        weight_sum = sum(SCORE_WEIGHTS.get(k, 0) for k in present) or 1
+
+        breakdown = {}
+        for key, value in scores.items():
+            weight = SCORE_WEIGHTS.get(key, 0)
+            if value is None:
+                breakdown[key] = {"status": "not_assessable", "score": None, "weight": weight, "contribution": None}
+            else:
+                normalized_weight = weight / weight_sum
+                breakdown[key] = {
+                    "status": "assessed", "score": value, "weight": weight,
+                    "contribution": round(value * normalized_weight, 2),
+                }
+        return breakdown
+
 
 class DeterministicScoringStrategy(ScoringStrategy):
     """Fixed, threshold-based scoring rules over financial and analysis data.
@@ -132,6 +169,8 @@ class DeterministicScoringStrategy(ScoringStrategy):
     intentionally simple and documented inline so they are auditable and
     easy to tune.
     """
+
+
 
     def compute(
         self,
@@ -164,15 +203,12 @@ class DeterministicScoringStrategy(ScoringStrategy):
             financial_notes, growth_notes, risk_notes, market_notes
         )
 
+        breakdown = _build_category_breakdown(financial_score, growth_score, risk_score, market_score, team_score)
         return ScoringResult(
-            overall_score=overall_score,
-            financial_score=financial_score,
-            growth_score=growth_score,
-            risk_score=risk_score,
-            market_score=market_score,
-            team_score=team_score,
-            confidence_score=confidence_score,
-            reasoning=reasoning,
+            overall_score=overall_score, financial_score=financial_score, growth_score=growth_score,
+            risk_score=risk_score, market_score=market_score, team_score=team_score,
+            confidence_score=confidence_score, reasoning=reasoning,
+            methodology_version=SCORING_METHODOLOGY_VERSION, category_breakdown=breakdown,
         )
 
     def _score_financial(

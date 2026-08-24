@@ -13,14 +13,18 @@ from sqlalchemy.sql import func
 from app.db.base import Base
 
 if TYPE_CHECKING:
+    from app.models.coverage_assessment import CoverageAssessment
+    from app.models.derived_metric import DerivedMetric
     from app.models.document_analysis import DocumentAnalysis
     from app.models.document_embedding import DocumentEmbedding
     from app.models.financial_fact import FinancialFact
     from app.models.financial_metrics import FinancialMetrics
     from app.models.investment_score import InvestmentScore
+    from app.models.missing_information_item import MissingInformationItem
     from app.models.organization import Organization
     from app.models.source_citation import SourceCitation
     from app.models.user import User
+    from app.models.validation_finding import ValidationFinding
 
 
 class DocumentStatus(str, enum.Enum):
@@ -168,6 +172,24 @@ class Document(Base):
         cascade="all, delete-orphan",
     )
     citations: Mapped[list["SourceCitation"]] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan",
+    )
+
+    validation_findings: Mapped[list["ValidationFinding"]] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan",
+    )
+    coverage_assessment: Mapped["CoverageAssessment | None"] = relationship(
+        back_populates="document",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    missing_information_items: Mapped[list["MissingInformationItem"]] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan",
+    )
+    derived_metric_rows: Mapped[list["DerivedMetric"]] = relationship(
         back_populates="document",
         cascade="all, delete-orphan",
     )

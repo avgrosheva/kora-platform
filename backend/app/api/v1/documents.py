@@ -81,6 +81,26 @@ from app.services.report_export_service import (
     ReportRenderingFailedError,
 )
 
+from app.schemas.coverage import CoverageAssessmentRead
+from app.schemas.derived_metrics import MetricsResponse
+from app.schemas.validation import ValidationChecksResponse
+from app.services.coverage_service import compute_coverage
+from app.services.derived_metrics_service import calculate_all_derived_metrics, persist_derived_metrics
+from app.services.financial_facts_service import FinancialFactsService
+from app.services.validation_service import ValidationService, run_all_validations
+
+from app.services.document_analysis_service import DocumentAnalysisService as DAService
+
+from app.services.missing_information_service import compute_missing_information, facts_to_metric_set, MissingInformationService
+
+from app.schemas.missing_information import MissingInformationResponse
+
+from app.schemas.due_diligence_v2 import DueDiligenceV2Response
+from app.services.due_diligence_v2_service import DueDiligenceV2Service
+
+from app.schemas.derived_metrics import DerivedMetricRead
+from app.schemas.validation import ValidationFindingRead
+
 settings = get_settings()
 
 router = APIRouter(prefix=f"{settings.API_V1_PREFIX}/documents", tags=["documents"])
@@ -629,6 +649,187 @@ async def generate_due_diligence_report(
         ) from exc
 
 @router.get(
+    "/{document_id}/metrics",
+    response_model=MetricsResponse,
+    summary="Get a document's time-series financial facts and derived metrics",
+)
+async def get_document_metrics(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> MetricsResponse:
+    """Return raw financial facts and computed derived metrics for a document.
+
+    Recomputes derived metrics from currently-stored facts each time
+    (cheap, pure-Python, no AI call) and persists the refreshed result,
+    so this endpoint always reflects the latest facts even if new ones
+    were added since the last computation.
+
+    Args:
+        document_id: The document's id.
+        db: The request-scoped database session.
+        current_user: The authenticated user.
+
+    Returns:
+        The document's facts and derived metrics.
+
+    Raises:
+        HTTPException: With status 404 if the document does not exist
+            or the user is not a member of its organization.
+    """
+    try:
+        await DocumentService.get_document(db, document_id, current_user.id)
+    except DocumentNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    fact_points = await FinancialFactsService.get_fact_points(db, document_id)
+    results = calculate_all_derived_metrics(fact_points)
+    persisted = await persist_derived_metrics(db, document_id, results)
+    raw_facts = await FinancialFactsService.list_facts(db, document_id)
+
+    return MetricsResponse(
+        financial_facts=[
+            {
+                "metric": f.metric, "value": f.value, "currency": f.currency,
+                "period_type": f.period_type, "period": f.period, "value_type": f.value_type,
+            }
+            for f in raw_facts
+        ],
+        derived_metrics=[DerivedMetricRead.model_validate(row) for row in persisted],
+    )
+
+
+@router.get(
+    "/{document_id}/checks",
+    response_model=ValidationChecksResponse,
+    summary="Get a document's deterministic consistency and anomaly findings",
+)
+async def get_document_checks(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> ValidationChecksResponse:
+    """Return validation findings for a document, recomputing from current facts.
+
+    Args:
+        document_id: The document's id.
+        db: The request-scoped database session.
+        current_user: The authenticated user.
+
+    Returns:
+        The document's validation findings, most severe first, with
+        per-severity counts.
+
+    Raises:
+        HTTPException: With status 404 if the document does not exist
+            or the user is not a member of its organization.
+    """
+    try:
+        await DocumentService.get_document(db, document_id, current_user.id)
+    except DocumentNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    fact_points = await FinancialFactsService.get_fact_points(db, document_id)
+    findings = run_all_validations(fact_points)
+    persisted = await ValidationService.persist_findings(db, document_id, findings)
+
+    return ValidationChecksResponse(
+        findings=[ValidationFindingRead.model_validate(f) for f in persisted],
+        critical_count=sum(1 for f in findings if f.severity.value == "critical"),
+        warning_count=sum(1 for f in findings if f.severity.value == "warning"),
+        info_count=sum(1 for f in findings if f.severity.value == "info"),
+    )
+
+
+@router.get(
+    "/{document_id}/coverage",
+    response_model=CoverageAssessmentRead,
+    summary="Get a document's explainable analysis-coverage assessment",
+)
+async def get_document_coverage(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> CoverageAssessmentRead:
+    """Return an explainable coverage assessment for a document.
+
+    As a side effect, also recomputes and persists the missing-
+    information checklist, since both are derived from the same
+    underlying found/missing field data.
+    """
+    try:
+        await DocumentService.get_document(db, document_id, current_user.id)
+    except DocumentNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    fact_points = await FinancialFactsService.get_fact_points(db, document_id)
+    financial_metrics_found = facts_to_metric_set(fact_points)
+
+    analysis = await DocumentAnalysisService.get_analysis(db, document_id, current_user.id) if False else None
+    try:
+        from app.services.document_analysis_service import AnalysisNotFoundError as _ANF
+        analysis = await DocumentAnalysisService.get_analysis(db, document_id, current_user.id)
+    except Exception:
+        analysis = None
+
+    company_fields_found = set()
+    market_fields_found = set()
+    if analysis is not None:
+        field_map = {
+            "company_name": analysis.company_name, "industry": analysis.industry,
+            "business_model": analysis.business_model, "summary": analysis.summary,
+            "key_products": analysis.key_products, "revenue_streams": analysis.revenue_streams,
+            "customers": analysis.customers, "competitors": analysis.competitors,
+        }
+        company_fields_found = {k for k, v in field_map.items() if v}
+        market_fields_found = {"competitors"} if analysis.competitors else set()
+
+    missing_info_result = compute_missing_information(
+        financial_metrics_found=financial_metrics_found,
+        company_fields_found=company_fields_found,
+        market_fields_found=market_fields_found,
+        team_fields_found=set(),
+    )
+    await MissingInformationService.persist_items(db, document_id, missing_info_result)
+
+    coverage_result = compute_coverage(
+        financial_metrics_found=financial_metrics_found,
+        company_fields_found=company_fields_found,
+        market_fields_found=market_fields_found,
+        team_fields_found=set(),
+        citations_count=0,
+        total_extracted_fields=len(fact_points) + len(company_fields_found),
+    )
+
+    return CoverageAssessmentRead(document_id=str(document_id), **coverage_result.model_dump())
+
+@router.get(
+    "/{document_id}/missing-information",
+    response_model=MissingInformationResponse,
+    summary="Get a document's missing-information checklist",
+)
+async def get_document_missing_information(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> MissingInformationResponse:
+    """Return the full checklist grouped by category, recomputed from current data."""
+    try:
+        await DocumentService.get_document(db, document_id, current_user.id)
+    except DocumentNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    fact_points = await FinancialFactsService.get_fact_points(db, document_id)
+    result = compute_missing_information(
+        financial_metrics_found=facts_to_metric_set(fact_points),
+        company_fields_found=set(),
+        market_fields_found=set(),
+        team_fields_found=set(),
+    )
+    await MissingInformationService.persist_items(db, document_id, result)
+    return result
+
+@router.get(
     "/{document_id}/report.md",
     summary="Export a document's due diligence report as Markdown",
     response_class=Response,
@@ -826,3 +1027,84 @@ async def index_document(
         ) from exc
 
     return IndexResponse(document_id=document_id, chunks_indexed=chunks_indexed)
+
+@router.post(
+    "/{document_id}/analyze-with-citations",
+    response_model=DocumentAnalysisRead,
+    summary="Run citation-backed AI analysis on a processed document",
+)
+async def analyze_document_with_citations(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> DocumentAnalysis:
+    """Analyze a document and persist per-field source citations.
+
+    Response shape is identical to `POST /{id}/analyze` for backward
+    compatibility; the additional citations are retrievable via the
+    `/coverage` endpoint's field-found data and future citation-lookup
+    endpoints.
+    """
+    try:
+        return await DAService.analyze_document_with_citations(db, document_id, current_user.id)
+    except DocumentNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except DocumentNotProcessedError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except AIServiceNotConfiguredError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    except (AIRequestFailedError, InvalidAIResponseError) as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{document_id}/extract-financial-facts",
+    summary="Extract time-series financial facts with citations",
+)
+async def extract_financial_facts(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Extract and persist citation-backed time-series financial facts.
+
+    Populates `financial_facts` (consumed by `/metrics` and `/checks`)
+    without touching the existing flat `FinancialMetrics` row.
+    """
+    try:
+        facts = await FinancialAnalysisService.extract_financial_facts(db, document_id, current_user.id)
+        return {"document_id": str(document_id), "facts_extracted": len(facts)}
+    except DocumentNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except AIServiceNotConfiguredError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    except (AIRequestFailedError, InvalidAIResponseError) as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{document_id}/due-diligence-v2",
+    response_model=DueDiligenceV2Response,
+    summary="Generate the upgraded, evidence-grounded due diligence report",
+)
+async def generate_due_diligence_report_v2(
+    document_id: uuid.UUID,
+    payload: DueDiligenceRequest | None = Body(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> DueDiligenceV2Response:
+    """Generate the upgraded report: verified facts, red flags from
+    validation findings, deterministic founder questions, and a
+    structured recommendation status — on top of the same narrative
+    sections and AI call as the original endpoint."""
+    top_k = payload.top_k if payload is not None else DueDiligenceRequest().top_k
+    try:
+        return await DueDiligenceV2Service.generate_report_v2(db, document_id, current_user.id, top_k)
+    except DocumentNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except DueDiligenceDocumentNotProcessedError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except AIServiceNotConfiguredError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    except (AIRequestFailedError, InvalidAIResponseError, EmbeddingRequestFailedError, InvalidEmbeddingDimensionError) as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc

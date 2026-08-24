@@ -140,6 +140,90 @@ present in the text.
 - Do not include markdown formatting, code fences, or any commentary. \
 Return the JSON object only."""
 
+EXTRACTION_VERSION = "cited_extraction_v1"
+
+_CITED_BUSINESS_SYSTEM_PROMPT = """You are a business analyst extracting structured, \
+citation-backed information from company documents.
+
+Return ONLY a single valid JSON object matching this exact shape. Every \
+field is an object with "value", "quote", "page_number", and \
+"confidence" keys (array fields are arrays of such objects):
+
+{
+  "company_name": {"value": string|null, "quote": string|null, "page_number": int|null, "confidence": float|null},
+  "industry": {...same shape...},
+  "business_model": {...same shape...},
+  "summary": {...same shape...},
+  "key_products": [{...same shape...}, ...],
+  "revenue_streams": [{...same shape...}, ...],
+  "target_customers": [{...same shape...}, ...],
+  "competitors": [{...same shape...}, ...],
+  "main_risks": [{...same shape...}, ...],
+  "growth_opportunities": [{...same shape...}, ...]
+}
+
+Rules:
+- "quote" must be the EXACT, verbatim text from the document that supports \
+"value" — never paraphrased. If you cannot find a verbatim supporting \
+passage, set "value" to null and "quote" to null.
+- Never invent, assume, or infer information not explicitly stated in the \
+document. If information is missing, set "value" to null.
+- "page_number" should reflect the page the quote appears on if the \
+document text indicates page boundaries; otherwise null.
+- "confidence" reflects your certainty in this specific extraction (1.0 = \
+explicitly and unambiguously stated; lower for information that required \
+interpretation).
+- For array fields, each item is its own object with its own quote — do \
+NOT combine multiple facts into one quote.
+- Do not include markdown formatting or commentary. Return the JSON object \
+only."""
+
+_CITED_FINANCIAL_SYSTEM_PROMPT = """You are a financial analyst extracting \
+time-series financial facts from company documents, with citations.
+
+Return ONLY a single valid JSON object with this exact shape:
+
+{
+  "facts": [
+    {
+      "metric": one of ["revenue", "gross_profit", "gross_margin", "ebitda",
+        "net_income", "operating_expenses", "cash", "debt", "burn_rate",
+        "cac", "ltv", "aov", "orders", "registered_customers",
+        "monthly_active_users", "churn_rate", "retention_rate",
+        "funding_amount", "valuation_pre_money", "valuation_post_money"],
+      "value": number,
+      "currency": string or null (ISO 4217 code, e.g. "USD"; null for counts),
+      "period_type": one of ["month", "quarter", "year", "point_in_time", "unknown"],
+      "period": string or null (e.g. "2025", "2025-Q2", "2025-06-30"),
+      "value_type": one of ["actual", "forecast", "target", "estimate", "derived"],
+      "quote": string (exact verbatim supporting text),
+      "page_number": int or null,
+      "confidence": float
+    },
+    ...
+  ]
+}
+
+Rules:
+- Extract EVERY distinct (metric, period) fact you can find. If revenue is \
+stated for 2023, 2024, AND 2025, return THREE separate revenue facts, one \
+per year — never collapse multiple periods into a single value.
+- "registered_customers" and "monthly_active_users" (or similar active-user \
+figures) must NEVER be merged into one fact, even if the document discusses \
+them together. Extract them as separate facts.
+- Classify "value_type" carefully: a stated projection or expectation for a \
+future period is "forecast", not "actual". A number the source explicitly \
+calls an estimate is "estimate". A stated goal is "target". Only use \
+"actual" for realized, historical figures.
+- Never extract a valuation or funding-round amount as "revenue", even if \
+the numbers are similar in magnitude. These are structurally different \
+metrics.
+- "quote" must be exact, verbatim text — never paraphrased.
+- Never invent a figure that is not explicitly stated. If you are unsure \
+whether a number represents this metric, omit it rather than guess.
+- Do not include markdown formatting or commentary. Return the JSON object \
+only."""
+
 def _create_openrouter_client() -> AsyncOpenAI:
     if not settings.OPENROUTER_API_KEY:
         raise AIServiceNotConfiguredError(
@@ -483,6 +567,118 @@ class AIService:
             response_model=DueDiligenceReportResult,
         )
 
+    @staticmethod
+    async def generate_cited_business_analysis(text_content: str) -> "CitedBusinessAnalysisResult":
+        """Analyze document text and return citation-backed business analysis.
+
+        Args:
+            text_content: The document's extracted plain text.
+
+        Returns:
+            The validated, citation-backed analysis result.
+
+        Raises:
+            AIServiceNotConfiguredError: If no OpenAI API key is configured.
+            AIRequestFailedError: If the request fails after retrying once.
+            InvalidAIResponseError: If the response is invalid even after
+                one correction retry.
+        """
+        from app.schemas.cited_extraction import CitedBusinessAnalysisResult
+
+        user_message = _build_user_message(
+            "Extract structured, citation-backed business information from "
+            "the following document:",
+            text_content,
+        )
+        return await _run_structured_completion_with_correction(
+            _CITED_BUSINESS_SYSTEM_PROMPT, user_message, CitedBusinessAnalysisResult
+        )
+
+    @staticmethod
+    async def generate_cited_financial_facts(text_content: str) -> "CitedFinancialFactsResult":
+        """Extract time-series financial facts with citations.
+
+        Args:
+            text_content: The document's extracted plain text.
+
+        Returns:
+            The validated, citation-backed financial facts result.
+
+        Raises:
+            AIServiceNotConfiguredError: If no OpenAI API key is configured.
+            AIRequestFailedError: If the request fails after retrying once.
+            InvalidAIResponseError: If the response is invalid even after
+                one correction retry.
+        """
+        from app.schemas.cited_extraction import CitedFinancialFactsResult
+
+        user_message = _build_user_message(
+            "Extract all time-series financial facts, with citations, from "
+            "the following document:",
+            text_content,
+        )
+        return await _run_structured_completion_with_correction(
+            _CITED_FINANCIAL_SYSTEM_PROMPT, user_message, CitedFinancialFactsResult
+        )
+
+    @staticmethod
+    async def generate_chat_answer_with_tools(
+        system_prompt: str, messages: list[dict], tools: list[dict]
+    ) -> tuple[str | None, list]:
+        """Run one tool-calling-capable chat completion turn.
+
+        Args:
+            system_prompt: The system prompt (only used if `messages`
+                doesn't already start with a system message).
+            messages: The running conversation, including any prior
+                tool results appended by the caller's orchestration loop.
+            tools: The `TOOL_SPECS`-shaped tool definitions to offer
+                the model.
+
+        Returns:
+            A tuple of `(answer_text_or_none, tool_calls)`. If the
+            model chose to call tools, `answer_text_or_none` is `None`
+            and `tool_calls` is non-empty (the OpenAI SDK's tool_calls
+            objects); otherwise `answer_text_or_none` holds the final
+            answer and `tool_calls` is empty.
+
+        Raises:
+            AIServiceNotConfiguredError: If no OpenAI API key is
+                configured, or it is rejected as invalid.
+            AIRequestFailedError: If the request fails after retrying
+                once.
+        """
+        if not settings.OPENAI_API_KEY:
+            raise AIServiceNotConfiguredError(
+                "OPENAI_API_KEY is not configured. Chat is unavailable until an API key is set."
+            )
+
+        client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY, timeout=REQUEST_TIMEOUT_SECONDS)
+
+        full_messages = messages if messages and messages[0].get("role") == "system" else (
+            [{"role": "system", "content": system_prompt}] + messages
+        )
+
+        last_error: Exception | None = None
+        for attempt in range(2):
+            try:
+                response = await client.chat.completions.create(
+                    model=settings.OPENAI_MODEL, messages=full_messages, tools=tools,
+                )
+                message = response.choices[0].message
+                if message.tool_calls:
+                    return None, message.tool_calls
+                return message.content or "", []
+            except AuthenticationError as exc:
+                raise AIServiceNotConfiguredError("OpenAI rejected the configured API key as invalid.") from exc
+            except (APITimeoutError, APIConnectionError, RateLimitError) as exc:
+                last_error = exc
+                logger.warning("OpenAI tool-call request failed (attempt %d/2): %s", attempt + 1, exc)
+                if attempt == 0:
+                    await asyncio.sleep(_RETRY_DELAY_SECONDS)
+
+        raise AIRequestFailedError(f"OpenAI request failed after retry: {last_error}") from last_error
+
 
 async def _run_structured_completion(
     system_prompt: str, user_message: str, response_model: type[_T]
@@ -540,6 +736,55 @@ async def _run_structured_completion(
         raise InvalidAIResponseError(
             f"AI response did not match the expected schema: {exc}"
         ) from exc
+
+async def _run_structured_completion_with_correction(
+    system_prompt: str, user_message: str, response_model: type
+):
+    """Run a structured completion, retrying once with a correction prompt
+    if the response fails Pydantic validation.
+
+    This is distinct from `_call_openai_with_retry`'s transient-failure
+    retry (network timeouts, rate limits) — this retry specifically
+    targets schema-validation failures (Section 11): if the model's JSON
+    doesn't match the expected shape, we tell it exactly what went wrong
+    and ask it to correct itself, rather than silently failing or saving
+    a partially-invalid result.
+
+    Args:
+        system_prompt: The system prompt for the extraction task.
+        user_message: The user message containing the document text.
+        response_model: The Pydantic model to validate against.
+
+    Returns:
+        A validated instance of `response_model`.
+
+    Raises:
+        AIServiceNotConfiguredError: If no OpenAI API key is configured.
+        AIRequestFailedError: If the underlying request fails after its
+            own retry.
+        InvalidAIResponseError: If validation still fails after the
+            correction retry.
+    """
+    try:
+        return await _run_structured_completion(system_prompt, user_message, response_model)
+    except InvalidAIResponseError as first_error:
+        logger.warning(
+            "Structured extraction failed validation, retrying with correction: %s",
+            first_error,
+        )
+        correction_message = (
+            f"{user_message}\n\n"
+            f"Your previous response was invalid: {first_error}\n"
+            f"Return ONLY a corrected JSON object matching the required schema exactly."
+        )
+        try:
+            return await _run_structured_completion(system_prompt, correction_message, response_model)
+        except InvalidAIResponseError as second_error:
+            logger.error(
+                "Structured extraction failed validation after correction retry: %s",
+                second_error,
+            )
+            raise
 
 
 async def _call_openai_with_retry(

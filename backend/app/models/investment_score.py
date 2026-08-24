@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Text
+from sqlalchemy import DateTime, ForeignKey, Text, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -14,6 +14,8 @@ from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.models.document import Document
+
+from sqlalchemy.dialects.postgresql import JSONB
 
 
 class InvestmentScore(Base):
@@ -99,6 +101,8 @@ class InvestmentScore(Base):
     )
 
     document: Mapped["Document"] = relationship(back_populates="investment_score")
+    methodology_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    category_breakdown: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     def __repr__(self) -> str:
         """Return a debug-friendly representation of the score.

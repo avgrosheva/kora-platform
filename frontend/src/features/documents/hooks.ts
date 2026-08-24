@@ -135,3 +135,65 @@ export function useGenerateDueDiligence(documentId: string) {
     mutationFn: () => documentsApi.generateDueDiligence(documentId),
   });
 }
+
+export function useDocumentMetrics(documentId: string | undefined) {
+  return useQuery({
+    queryKey: ["documents", "detail", documentId, "metrics"],
+    queryFn: () => documentsApi.getMetrics(documentId as string),
+    enabled: !!documentId,
+  });
+}
+
+export function useDocumentChecks(documentId: string | undefined) {
+  return useQuery({
+    queryKey: ["documents", "detail", documentId, "checks"],
+    queryFn: () => documentsApi.getChecks(documentId as string),
+    enabled: !!documentId,
+  });
+}
+
+export function useDocumentCoverage(documentId: string | undefined) {
+  return useQuery({
+    queryKey: ["documents", "detail", documentId, "coverage"],
+    queryFn: () => documentsApi.getCoverage(documentId as string),
+    enabled: !!documentId,
+  });
+}
+
+export function useMissingInformation(documentId: string | undefined) {
+  return useQuery({
+    queryKey: ["documents", "detail", documentId, "missing-information"],
+    queryFn: () => documentsApi.getMissingInformation(documentId as string),
+    enabled: !!documentId,
+  });
+}
+
+export function useExtractFinancialFacts(documentId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => documentsApi.extractFinancialFacts(documentId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["documents", "detail", documentId, "metrics"] });
+      queryClient.invalidateQueries({ queryKey: ["documents", "detail", documentId, "checks"] });
+      queryClient.invalidateQueries({ queryKey: ["documents", "detail", documentId, "coverage"] });
+      queryClient.invalidateQueries({ queryKey: ["documents", "detail", documentId, "missing-information"] });
+    },
+  });
+}
+
+export function useAnalyzeWithCitations(documentId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => documentsApi.analyzeWithCitations(documentId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["documents", "detail", documentId, "analysis"] });
+      queryClient.invalidateQueries({ queryKey: ["documents", "detail", documentId, "coverage"] });
+    },
+  });
+}
+
+export function useGenerateDueDiligenceV2(documentId: string) {
+  return useMutation({
+    mutationFn: () => documentsApi.generateDueDiligenceV2(documentId),
+  });
+}

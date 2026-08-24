@@ -21,6 +21,11 @@ from dataclasses import dataclass
 from app.models.financial_fact import FinancialMetricType, FinancialValueType, PeriodType
 from app.schemas.derived_metrics import DerivedMetricResult, MetricInputRef, MetricStatus
 
+from app.models.derived_metric import DerivedMetric
+
+import uuid
+from sqlalchemy.ext.asyncio import AsyncSession
+
 M = FinancialMetricType
 V = FinancialValueType
 P = PeriodType
@@ -852,27 +857,60 @@ def calculate_all_derived_metrics(facts: list[FactPoint]) -> list[DerivedMetricR
 def facts_from_financial_facts(orm_facts: list) -> list[FactPoint]:
     """Convert `FinancialFact` ORM rows into `FactPoint`s for the engine.
 
-    Kept as a single, small, easily-mocked conversion point so the
-    calculation engine above never imports SQLAlchemy or touches a
-    session — `orm_facts` is typed loosely (`list`) rather than
-    `list[FinancialFact]` to avoid a hard import dependency in this
-    module; callers pass already-fetched `FinancialFact` rows.
-
-    Args:
-        orm_facts: A list of `FinancialFact` ORM instances.
-
-    Returns:
-        The equivalent list of `FactPoint`s.
+    ORM rows store `metric`/`period_type`/`value_type` as plain strings
+    (a deliberate choice made in Step 1 to avoid SQLAlchemy's
+    `values_callable` enum pitfalls), so each is explicitly converted
+    back to its corresponding enum here — the calculation engine
+    requires real enum members, not strings, for its `==` comparisons
+    against `FinancialMetricType.REVENUE` etc. to work correctly.
     """
     return [
         FactPoint(
-            metric=f.metric,
+            metric=FinancialMetricType(f.metric),
             value=f.value,
             period=f.period,
-            period_type=f.period_type,
-            value_type=f.value_type,
+            period_type=PeriodType(f.period_type),
+            value_type=FinancialValueType(f.value_type),
             currency=f.currency,
             source_citation_id=str(f.source_citation_id) if f.source_citation_id else None,
         )
         for f in orm_facts
     ]
+
+async def persist_derived_metrics(
+    db: "AsyncSession", document_id: "uuid.UUID", results: list[DerivedMetricResult]
+) -> list["DerivedMetric"]:
+    """Replace a document's derived metrics with a newly computed set.
+
+    Args:
+        db: The active database session.
+        document_id: The document these metrics belong to.
+        results: The computed `DerivedMetricResult`s to persist.
+
+    Returns:
+        The newly persisted `DerivedMetric` rows.
+    """
+    from sqlalchemy import delete as sa_delete
+
+    await db.execute(sa_delete(DerivedMetric).where(DerivedMetric.document_id == document_id))
+
+    rows = [
+        DerivedMetric(
+            document_id=document_id,
+            metric=r.metric,
+            period=r.period,
+            value=r.value,
+            display_value=r.display_value,
+            formula=r.formula,
+            inputs=[i.model_dump() for i in r.inputs],
+            status=r.status.value,
+            confidence=r.confidence,
+            notes=r.notes,
+        )
+        for r in results
+    ]
+    db.add_all(rows)
+    await db.commit()
+    for row in rows:
+        await db.refresh(row)
+    return rows

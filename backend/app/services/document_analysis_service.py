@@ -17,6 +17,9 @@ from app.schemas.document_analysis import DocumentAnalysisCreate
 from app.services.ai_service import AIAnalysisResult, AIService
 from app.services.document_service import DocumentNotFoundError, DocumentService
 
+from app.services.ai_service import AIService, EXTRACTION_VERSION
+from app.services.citation_service import CitationService
+
 
 class DocumentAnalysisServiceError(Exception):
     """Base exception for document analysis orchestration failures."""
@@ -150,6 +153,110 @@ class DocumentAnalysisService:
             )
 
         return analysis
+
+    @staticmethod
+    async def analyze_document_with_citations(
+        db: AsyncSession, document_id: uuid.UUID, actor_id: uuid.UUID
+    ) -> DocumentAnalysis:
+        """Analyze a document and persist per-field source citations.
+
+        Produces the same `DocumentAnalysis` row shape as
+        `analyze_document` (full backward compatibility for existing
+        API consumers), but additionally writes one `SourceCitation`
+        row per non-null extracted field, including one per array item
+        (each competitor, each risk gets its own citation).
+
+        Args:
+            db: The active database session.
+            document_id: The document's id.
+            actor_id: The id of the user requesting analysis.
+
+        Returns:
+            The newly created or updated `DocumentAnalysis`.
+
+        Raises:
+            DocumentNotFoundError: If the document does not exist, or
+                the actor is not a member of its organization.
+            DocumentNotProcessedError: If the document's text extraction
+                has not completed successfully.
+            AIServiceNotConfiguredError, AIRequestFailedError,
+            InvalidAIResponseError: Propagated from `AIService`.
+        """
+        document = await DocumentService.get_document(db, document_id, actor_id)
+
+        if document.status != DocumentStatus.COMPLETED:
+            raise DocumentNotProcessedError(
+                "Document must be fully processed (status=completed) "
+                "before it can be analyzed."
+            )
+
+        cited = await AIService.generate_cited_business_analysis(document.text_content or "")
+
+        analysis_data = DocumentAnalysisCreate(
+            summary=cited.summary.value,
+            company_name=cited.company_name.value,
+            industry=cited.industry.value,
+            business_model=cited.business_model.value,
+            key_products=[c.value for c in cited.key_products if c.value] or None,
+            risks=[c.value for c in cited.main_risks if c.value] or None,
+            opportunities=[c.value for c in cited.growth_opportunities if c.value] or None,
+            revenue_streams=[c.value for c in cited.revenue_streams if c.value] or None,
+            customers=[c.value for c in cited.target_customers if c.value] or None,
+            competitors=[c.value for c in cited.competitors if c.value] or None,
+            raw_json=cited.model_dump(),
+        )
+
+        existing = await _get_existing_analysis(db, document_id)
+        if existing is not None:
+            _apply_analysis_data(existing, analysis_data)
+            analysis = existing
+        else:
+            analysis = DocumentAnalysis(document_id=document_id, **analysis_data.model_dump())
+            db.add(analysis)
+
+        await db.commit()
+        await db.refresh(analysis)
+
+        await _persist_citations_for_analysis(db, document_id, cited)
+
+        return analysis
+
+
+async def _persist_citations_for_analysis(db, document_id, cited) -> None:
+    """Write one `SourceCitation` per non-null field in a cited analysis.
+
+    Array fields get one citation per item, indexed in `field_path`
+    (e.g. `"analysis.competitors[0]"`), so each competitor/risk/etc.
+    is independently traceable.
+
+    Args:
+        db: The active database session.
+        document_id: The document these citations belong to.
+        cited: The validated `CitedBusinessAnalysisResult`.
+    """
+    scalar_fields = ["company_name", "industry", "business_model", "summary"]
+    array_fields = [
+        "key_products", "revenue_streams", "target_customers",
+        "competitors", "main_risks", "growth_opportunities",
+    ]
+
+    for field_name in scalar_fields:
+        cited_value = getattr(cited, field_name)
+        if cited_value.value is not None and cited_value.quote:
+            await CitationService.create_citation(
+                db, document_id, f"analysis.{field_name}", cited_value.quote,
+                page_number=cited_value.page_number, confidence=cited_value.confidence,
+                extraction_version=EXTRACTION_VERSION,
+            )
+
+    for field_name in array_fields:
+        for index, item in enumerate(getattr(cited, field_name)):
+            if item.value is not None and item.quote:
+                await CitationService.create_citation(
+                    db, document_id, f"analysis.{field_name}[{index}]", item.quote,
+                    page_number=item.page_number, confidence=item.confidence,
+                    extraction_version=EXTRACTION_VERSION,
+                )
 
 
 async def _get_existing_analysis(

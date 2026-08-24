@@ -101,3 +101,40 @@ class DerivedMetricResult(BaseModel):
     status: MetricStatus
     confidence: float | None
     notes: str | None = None
+
+class DerivedMetricRead(BaseModel):
+    """Public representation of a persisted derived metric.
+
+    Attributes:
+        id: The metric row's unique identifier.
+        document_id: The document this metric was calculated for.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    document_id: str
+    metric: str
+    period: str | None
+    value: float | None
+    display_value: str | None
+    formula: str
+    inputs: list[MetricInputRef]
+    status: MetricStatus
+    confidence: float | None
+    notes: str | None
+
+
+class MetricsResponse(BaseModel):
+    """Response for `GET /documents/{id}/metrics`.
+
+    Attributes:
+        financial_facts: The document's raw time-series facts.
+        derived_metrics: The document's computed derived metrics,
+            grouped implicitly by metric name (frontend groups by
+            growth/profitability/unit_economics/valuation via metric
+            name prefix or a lookup table).
+    """
+
+    financial_facts: list[dict]
+    derived_metrics: list[DerivedMetricRead]

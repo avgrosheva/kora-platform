@@ -29,6 +29,10 @@ from app.services.document_analysis_service import (
 )
 from app.services.document_service import DocumentNotFoundError, DocumentService
 
+from app.services.ai_service import AIService, EXTRACTION_VERSION
+from app.services.citation_service import CitationService
+from app.services.financial_facts_service import FinancialFactsService
+
 _EXTRACTABLE_FIELD_NAMES = (
     "revenue",
     "arr",
@@ -240,6 +244,55 @@ class FinancialAnalysisService:
             )
 
         return metrics
+
+    @staticmethod
+    async def extract_financial_facts(
+        db: AsyncSession, document_id: uuid.UUID, actor_id: uuid.UUID
+        ) -> list:
+            """Extract and persist time-series financial facts with citations.
+
+            This is a SEPARATE AI call from `analyze_financial_metrics`
+            (which populates the flat, single-period `FinancialMetrics`
+            row) — the two are not merged into one request, since asking
+            the model for both a flat summary and a full time-series
+            breakdown in one call degrades quality of both. Calling both
+            this method and `analyze_financial_metrics` for the same
+            document means two AI calls; this is a deliberate, disclosed
+            cost, not an oversight.
+
+            Args:
+                db: The active database session.
+                document_id: The document's id.
+                actor_id: The id of the user requesting extraction.
+
+            Returns:
+                The newly persisted `FinancialFact` rows.
+
+            Raises:
+                DocumentNotFoundError: If the document does not exist, or
+                    the actor is not a member of its organization.
+                AIServiceNotConfiguredError, AIRequestFailedError,
+                InvalidAIResponseError: Propagated from `AIService`.
+            """
+            document = await DocumentService.get_document(db, document_id, actor_id)
+
+            cited = await AIService.generate_cited_financial_facts(document.text_content or "")
+
+            fact_dicts = []
+            for item in cited.facts:
+                citation = await CitationService.create_citation(
+                    db, document_id,
+                    f"financial_facts.{item.metric.value}.{item.period or 'unknown'}",
+                    item.quote, page_number=item.page_number, confidence=item.confidence,
+                    extraction_version=EXTRACTION_VERSION,
+                )
+                fact_dicts.append({
+                    "metric": item.metric, "value": item.value, "currency": item.currency,
+                    "period_type": item.period_type, "period": item.period,
+                    "value_type": item.value_type, "source_citation_id": citation.id,
+                })
+
+            return await FinancialFactsService.replace_facts(db, document_id, fact_dicts)
 
 
 async def _get_existing_metrics(

@@ -9,6 +9,8 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { useCalculateScore, useFinancialMetrics, useScore } from "../hooks";
 import type { DocumentRead } from "@/types/api";
 
+import { ScoreBreakdownCard } from "./score-breakdown-card";
+
 function SubScore({ label, value }: { label: string; value: number | null }) {
   return (
     <div>

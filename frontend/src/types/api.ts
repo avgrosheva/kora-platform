@@ -105,6 +105,8 @@ export interface InvestmentScoreResponse {
   reasoning: string | null;
   created_at: string;
   updated_at: string;
+  methodology_version: string | null;
+  category_breakdown: Record<string, CategoryBreakdownEntry> | null;
 }
 
 export interface DashboardResponse {
@@ -214,4 +216,188 @@ export interface ApiErrorBody {
   detail: string | Array<{ msg: string; loc: (string | number)[] }>;
   error_type?: string;
   request_id?: string;
+}
+
+export type FinancialMetricType =
+  | "revenue" | "gross_profit" | "gross_margin" | "ebitda" | "net_income"
+  | "operating_expenses" | "cash" | "debt" | "burn_rate" | "cac" | "ltv"
+  | "aov" | "orders" | "registered_customers" | "monthly_active_users"
+  | "churn_rate" | "retention_rate" | "funding_amount"
+  | "valuation_pre_money" | "valuation_post_money";
+
+export type PeriodType = "month" | "quarter" | "year" | "point_in_time" | "unknown";
+export type FinancialValueType = "actual" | "forecast" | "target" | "estimate" | "derived";
+export type MetricStatus = "calculated" | "reported" | "missing_inputs" | "period_mismatch" | "ambiguous" | "invalid";
+
+export interface RawFinancialFact {
+  metric: FinancialMetricType;
+  value: number;
+  currency: string | null;
+  period_type: PeriodType;
+  period: string | null;
+  value_type: FinancialValueType;
+}
+
+export interface MetricInputRef {
+  name: string;
+  value: number;
+  period: string | null;
+  source_citation_id: string | null;
+}
+
+export interface DerivedMetricRead {
+  id: string;
+  document_id: string;
+  metric: string;
+  period: string | null;
+  value: number | null;
+  display_value: string | null;
+  formula: string;
+  inputs: MetricInputRef[];
+  status: MetricStatus;
+  confidence: number | null;
+  notes: string | null;
+}
+
+export interface MetricsResponse {
+  financial_facts: RawFinancialFact[];
+  derived_metrics: DerivedMetricRead[];
+}
+
+// ============================================================
+// Validation Findings / Checks
+// ============================================================
+
+export type FindingSeverity = "info" | "warning" | "critical";
+
+export interface ValidationFindingRead {
+  id: string;
+  document_id: string;
+  severity: FindingSeverity;
+  category: string;
+  title: string;
+  description: string;
+  affected_metrics: string[];
+  sources: string[];
+  suggested_question: string | null;
+  created_at: string;
+}
+
+export interface ValidationChecksResponse {
+  findings: ValidationFindingRead[];
+  critical_count: number;
+  warning_count: number;
+  info_count: number;
+}
+
+// ============================================================
+// Coverage Assessment
+// ============================================================
+
+export interface CategoryCoverage {
+  found: number;
+  required: number;
+  score: number;
+}
+
+export interface CoverageAssessmentRead {
+  document_id: string;
+  overall_confidence: number;
+  coverage: Record<string, CategoryCoverage>;
+  source_coverage: number;
+  ambiguities_count: number;
+  critical_missing_fields: string[];
+}
+
+// ============================================================
+// Missing Information Checklist
+// ============================================================
+
+export type FieldStatus = "found" | "missing" | "ambiguous" | "contradictory" | "not_applicable";
+
+export interface ChecklistItemResult {
+  category: string;
+  field_name: string;
+  status: FieldStatus;
+}
+
+export interface MissingInformationByCategory {
+  category: string;
+  missing: string[];
+  ambiguous: string[];
+  contradictory: string[];
+}
+
+export interface MissingInformationResponse {
+  items: ChecklistItemResult[];
+  by_category: MissingInformationByCategory[];
+  total_required: number;
+  total_found: number;
+}
+
+// ============================================================
+// Investment Score v2 (category breakdown)
+// ============================================================
+
+export interface CategoryBreakdownEntry {
+  status: "assessed" | "not_assessable";
+  score: number | null;
+  weight: number;
+  contribution: number | null;
+}
+
+// Extends the existing InvestmentScoreResponse shape with the two new
+// optional fields added in Step 7. Not a separate interface — the
+// backend returns these on the SAME /score endpoint response.
+export interface InvestmentScoreResponseV2 extends InvestmentScoreResponse {
+  methodology_version: string | null;
+  category_breakdown: Record<string, CategoryBreakdownEntry> | null;
+}
+
+// ============================================================
+// Due Diligence v2
+// ============================================================
+
+export type RecommendationStatus =
+  | "strong_candidate" | "worth_exploring" | "needs_more_info" | "concerns_identified";
+
+export interface VerifiedFact {
+  label: string;
+  value_display: string;
+  source_citation_id: string | null;
+}
+
+export interface FounderQuestion {
+  question: string;
+  category: string;
+  priority: "high" | "medium";
+}
+
+export interface DueDiligenceV2Response {
+  document_id: string;
+  recommendation_status: RecommendationStatus;
+  executive_summary: string;
+  verified_facts: VerifiedFact[];
+  sections: DueDiligenceSection[];
+  red_flags: ValidationFindingRead[];
+  founder_questions: FounderQuestion[];
+  sources: ChatSource[];
+  model_used: string;
+}
+
+// ============================================================
+// Chat v2 (tool calling)
+// ============================================================
+
+export interface ToolCallRecord {
+  tool_name: string;
+  arguments: Record<string, unknown>;
+  result_summary: string;
+}
+
+export interface ChatV2Response {
+  answer: string;
+  sources: ChatSource[];
+  tool_calls: ToolCallRecord[];
+  model_used: string;
 }

@@ -13,6 +13,10 @@ import { FinancialsTab } from "@/features/documents/components/financials-tab";
 import { ScoreTab } from "@/features/documents/components/score-tab";
 import { DueDiligenceTab } from "@/features/documents/components/due-diligence-tab";
 
+import { ChecksTab } from "@/features/documents/components/checks-tab";
+import { CoverageTab } from "@/features/documents/components/coverage-tab";
+import { DueDiligenceV2Tab } from "@/features/documents/components/due-diligence-v2-tab";
+
 export default function DocumentDetailPage() {
   const params = useParams<{ id: string }>();
   const { data: document, isLoading, isError } = useDocument(params.id);
@@ -42,6 +46,8 @@ export default function DocumentDetailPage() {
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="analysis">Analysis</TabsTrigger>
           <TabsTrigger value="financials">Financials</TabsTrigger>
+          <TabsTrigger value="checks">Checks</TabsTrigger>
+          <TabsTrigger value="coverage">Coverage</TabsTrigger>
           <TabsTrigger value="score">Score</TabsTrigger>
           <TabsTrigger value="due-diligence">Due Diligence</TabsTrigger>
         </TabsList>
@@ -59,6 +65,15 @@ export default function DocumentDetailPage() {
         </TabsContent>
         <TabsContent value="due-diligence" className="mt-4">
           <DueDiligenceTab document={document} />
+        </TabsContent>
+        <TabsContent value="checks" className="mt-4">
+          <ChecksTab document={document} />
+        </TabsContent>
+        <TabsContent value="coverage" className="mt-4">
+          <CoverageTab document={document} />
+        </TabsContent>
+        <TabsContent value="due-diligence" className="mt-4">
+          <DueDiligenceV2Tab document={document} />
         </TabsContent>
       </Tabs>
     </div>
