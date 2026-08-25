@@ -643,17 +643,17 @@ class AIService:
             answer and `tool_calls` is empty.
 
         Raises:
-            AIServiceNotConfiguredError: If no OpenAI API key is
+            AIServiceNotConfiguredError: If no OpenRouter API key is
                 configured, or it is rejected as invalid.
             AIRequestFailedError: If the request fails after retrying
                 once.
         """
-        if not settings.OPENAI_API_KEY:
+        if not settings.OPENROUTER_API_KEY:
             raise AIServiceNotConfiguredError(
-                "OPENAI_API_KEY is not configured. Chat is unavailable until an API key is set."
+                "OPENROUTER_API_KEY is not configured. Chat is unavailable until an API key is set."
             )
 
-        client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY, timeout=REQUEST_TIMEOUT_SECONDS)
+        client = _create_openrouter_client()
 
         full_messages = messages if messages and messages[0].get("role") == "system" else (
             [{"role": "system", "content": system_prompt}] + messages
@@ -663,7 +663,7 @@ class AIService:
         for attempt in range(2):
             try:
                 response = await client.chat.completions.create(
-                    model=settings.OPENAI_MODEL, messages=full_messages, tools=tools,
+                    model=settings.OPENROUTER_CHAT_MODEL, messages=full_messages, tools=tools,
                 )
                 message = response.choices[0].message
                 if message.tool_calls:

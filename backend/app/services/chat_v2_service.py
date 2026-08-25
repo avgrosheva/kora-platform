@@ -77,7 +77,7 @@ class ChatV2Service:
             every tool call made, and the model used.
 
         Raises:
-            AIServiceNotConfiguredError: If no OpenAI API key is
+            AIServiceNotConfiguredError: If no OpenRouter API key is
                 configured.
             AIRequestFailedError: If any completion request fails
                 after its own retry.
@@ -96,7 +96,7 @@ class ChatV2Service:
                     answer=(answer or "").strip(),
                     sources=all_sources,
                     tool_calls=tool_call_records,
-                    model_used=settings.OPENAI_MODEL,
+                    model_used=settings.OPENROUTER_CHAT_MODEL,
                 )
 
             messages.append({
@@ -127,7 +127,7 @@ class ChatV2Service:
 
         return ChatV2Response(
             answer="I wasn't able to fully answer this within the allowed number of tool calls. Please try a more specific question.",
-            sources=all_sources, tool_calls=tool_call_records, model_used=settings.OPENAI_MODEL,
+            sources=all_sources, tool_calls=tool_call_records, model_used=settings.OPENROUTER_CHAT_MODEL,
         )
 
 
