@@ -15,6 +15,7 @@ from app.models.financial_metrics import FinancialMetrics
 from app.models.investment_score import InvestmentScore
 from app.models.missing_information_item import MissingInformationItem
 from app.models.organization import Membership, Organization, OrganizationInvitation
+from app.models.qualitative_fact import QualitativeFact
 from app.models.source_citation import SourceCitation
 from app.models.user import User
 from app.models.validation_finding import ValidationFinding
@@ -35,4 +36,5 @@ __all__ = [
     "CoverageAssessment",
     "MissingInformationItem",
     "DerivedMetric",
+    "QualitativeFact",
 ]

@@ -7,11 +7,25 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shared/empty-state";
 import { useDocumentCoverage, useMissingInformation } from "../hooks";
-import type { DocumentRead } from "@/types/api";
+import type { ChecklistItemResult, DocumentRead } from "@/types/api";
 
 const CATEGORY_LABELS: Record<string, string> = {
   company: "Company Overview", financial: "Financial", market: "Market", team: "Team",
 };
+
+// Groups non-FOUND checklist items by category, preserving first-seen
+// category order, so each gap can be shown alongside its
+// recommended_request (Step 9) instead of a bare field-name badge.
+function missingByCategory(items: ChecklistItemResult[]): [string, ChecklistItemResult[]][] {
+  const byCategory = new Map<string, ChecklistItemResult[]>();
+  for (const item of items) {
+    if (item.status === "found") continue;
+    const existing = byCategory.get(item.category);
+    if (existing) existing.push(item);
+    else byCategory.set(item.category, [item]);
+  }
+  return Array.from(byCategory.entries());
+}
 
 export function CoverageTab({ document }: { document: DocumentRead }) {
   const { data: coverage, isLoading: coverageLoading } = useDocumentCoverage(document.id);
@@ -61,14 +75,26 @@ export function CoverageTab({ document }: { document: DocumentRead }) {
 
       {missingInfo && (
         <Card className="border-border/50">
-          <CardHeader><CardTitle className="text-sm font-medium">Missing Information by Category</CardTitle></CardHeader>
-          <CardContent className="space-y-3">
-            {missingInfo.by_category.filter((c) => c.missing.length > 0).map((cat) => (
-              <div key={cat.category}>
-                <p className="mb-1.5 text-xs font-medium capitalize">{cat.category}</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {cat.missing.map((field) => (
-                    <Badge key={field} variant="outline" className="text-[10px]">{field.replace(/_/g, " ")}</Badge>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium">Missing Information by Category</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-xs text-muted-foreground">
+              What to request for each gap, and why it matters -- not just a list of field names.
+            </p>
+            {missingByCategory(missingInfo.items).map(([category, items]) => (
+              <div key={category}>
+                <p className="mb-1.5 text-xs font-medium capitalize">{category}</p>
+                <div className="space-y-2">
+                  {items.map((item) => (
+                    <div key={item.field_name} className="flex items-start gap-2 text-xs">
+                      <Badge variant="outline" className="shrink-0 text-[10px]">
+                        {item.field_name.replace(/_/g, " ")}
+                      </Badge>
+                      {item.recommended_request && (
+                        <span className="text-muted-foreground">{item.recommended_request}</span>
+                      )}
+                    </div>
                   ))}
                 </div>
               </div>

@@ -25,10 +25,29 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.document_analysis import DocumentAnalysis
 from app.models.financial_metrics import FinancialMetrics
-from app.models.investment_score import InvestmentScore
+from app.models.investment_score import AssessmentStatus, InvestmentScore
 from app.services.document_service import DocumentNotFoundError, DocumentService
+from app.services.evidence_service import EvidenceService
 
 from app.core.scoring_config import SCORE_WEIGHTS, SCORING_METHODOLOGY_VERSION
+
+# Fixed thresholds for `assessment_status` (Evidence Layer plan, Step 8).
+# Not tuned to any specific test document -- chosen as round, defensible
+# midpoints on each underlying 0.0-1.0 scale:
+#   - Coverage >= 0.5: at least half of the due-diligence checklist
+#     (company/financial/market/team fields) has been found at all.
+#   - Confidence >= 0.5: at least half of the five scoring dimensions
+#     (financial/growth/risk/market/team) could actually be computed.
+#   - At least 3 of the 4 assessable dimensions (team is always excluded
+#     -- see `InvestmentScore.team_score`) computed: a single dimension
+#     (e.g. financial alone) is not enough evidence to responsibly
+#     present ONE composite number, even if that one dimension's own
+#     score looks confident.
+# All three must hold; any one failing means the composite would be
+# resting on too little evidence, regardless of how the other two look.
+_MIN_COVERAGE_FOR_SUFFICIENT_EVIDENCE = 0.5
+_MIN_CONFIDENCE_FOR_SUFFICIENT_EVIDENCE = 0.5
+_MIN_ASSESSED_DIMENSIONS_FOR_SUFFICIENT_EVIDENCE = 3
 
 # Weights used to combine sub-scores into `overall_score`. `team_score`
 # is intentionally excluded: it is always `None` in the current data
@@ -73,6 +92,11 @@ class ScoringResult:
         team_score: Reserved team-strength sub-score, or `None`.
         confidence_score: Fraction (0.0-1.0) of dimensions computed.
         reasoning: A human-readable explanation of the score.
+        assessment_status: Whether enough evidence exists to present
+            `overall_score` as a single number (Step 8). When
+            `INSUFFICIENT_EVIDENCE`, `overall_score` is `None`
+            regardless of what the weighted formula would otherwise
+            produce.
     """
 
     overall_score: float | None
@@ -83,6 +107,7 @@ class ScoringResult:
     team_score: float | None
     confidence_score: float | None
     reasoning: str
+    assessment_status: AssessmentStatus
     methodology_version: str = SCORING_METHODOLOGY_VERSION
     category_breakdown: dict | None = None
 
@@ -100,6 +125,7 @@ class ScoringStrategy(ABC):
         self,
         financial_metrics: FinancialMetrics | None,
         analysis: DocumentAnalysis | None,
+        coverage_confidence: float,
     ) -> ScoringResult:
         """Compute a score from a document's available structured data.
 
@@ -108,6 +134,9 @@ class ScoringStrategy(ABC):
                 `None` if none exist.
             analysis: The document's business analysis, or `None` if
                 none exists.
+            coverage_confidence: The document's overall coverage
+                confidence (0.0-1.0, from `EvidenceService.get_coverage`)
+                — one of the three inputs to `assessment_status` (Step 8).
 
         Returns:
             The computed `ScoringResult`.
@@ -129,10 +158,57 @@ def _clamp(value: float, low: float = 0.0, high: float = 100.0) -> float:
     """
     return max(low, min(high, value))
 
+def _compute_assessment_status(
+    confidence_score: float, coverage_confidence: float, assessed_dimensions: int
+) -> AssessmentStatus:
+    """Decide whether enough evidence exists to present a composite score.
+
+    All three fixed thresholds (module-level constants) must hold; see
+    their definitions for why each one was chosen. This function
+    contains no per-document or per-company logic — it's a pure
+    threshold check over three already-computed numbers.
+
+    Args:
+        confidence_score: Fraction (0.0-1.0) of scoring dimensions computed.
+        coverage_confidence: The document's overall coverage confidence
+            (0.0-1.0).
+        assessed_dimensions: How many of the 4 assessable dimensions
+            (financial/growth/risk/market) have a score.
+
+    Returns:
+        `SUFFICIENT_EVIDENCE` if every threshold is met, otherwise
+        `INSUFFICIENT_EVIDENCE`.
+    """
+    if (
+        coverage_confidence >= _MIN_COVERAGE_FOR_SUFFICIENT_EVIDENCE
+        and confidence_score >= _MIN_CONFIDENCE_FOR_SUFFICIENT_EVIDENCE
+        and assessed_dimensions >= _MIN_ASSESSED_DIMENSIONS_FOR_SUFFICIENT_EVIDENCE
+    ):
+        return AssessmentStatus.SUFFICIENT_EVIDENCE
+    return AssessmentStatus.INSUFFICIENT_EVIDENCE
+
+
 def _build_category_breakdown(
-        financial_score, growth_score, risk_score, market_score, team_score
+        financial_score, growth_score, risk_score, market_score, team_score, overall_score_is_present: bool
     ) -> dict:
         """Build the transparent per-category breakdown (Section 6).
+
+        Args:
+            financial_score: The financial sub-score, or `None`.
+            growth_score: The growth sub-score, or `None`.
+            risk_score: The risk sub-score, or `None`.
+            market_score: The market sub-score, or `None`.
+            team_score: The team sub-score, or `None`.
+            overall_score_is_present: Whether `overall_score` is a real
+                number (Step 8: `False` when `assessment_status` is
+                `INSUFFICIENT_EVIDENCE`). When `False`, every entry's
+                `contribution` is `None` regardless of its own score —
+                "contributes N pts to the overall score" is a statement
+                about a number that, in that case, doesn't exist, so
+                asserting it would be exactly the false precision this
+                step exists to remove. `score`/`weight`/`status` are
+                unaffected — those remain valid observed-performance
+                signals independent of whether a composite was formed.
 
         Returns:
             A dict keyed by category, each with score, weight, whether it
@@ -154,10 +230,8 @@ def _build_category_breakdown(
                 breakdown[key] = {"status": "not_assessable", "score": None, "weight": weight, "contribution": None}
             else:
                 normalized_weight = weight / weight_sum
-                breakdown[key] = {
-                    "status": "assessed", "score": value, "weight": weight,
-                    "contribution": round(value * normalized_weight, 2),
-                }
+                contribution = round(value * normalized_weight, 2) if overall_score_is_present else None
+                breakdown[key] = {"status": "assessed", "score": value, "weight": weight, "contribution": contribution}
         return breakdown
 
 
@@ -176,6 +250,7 @@ class DeterministicScoringStrategy(ScoringStrategy):
         self,
         financial_metrics: FinancialMetrics | None,
         analysis: DocumentAnalysis | None,
+        coverage_confidence: float,
     ) -> ScoringResult:
         """Compute a deterministic investment score.
 
@@ -183,6 +258,8 @@ class DeterministicScoringStrategy(ScoringStrategy):
             financial_metrics: The document's financial metrics, or
                 `None`.
             analysis: The document's business analysis, or `None`.
+            coverage_confidence: The document's overall coverage
+                confidence (0.0-1.0).
 
         Returns:
             The computed `ScoringResult`.
@@ -193,21 +270,33 @@ class DeterministicScoringStrategy(ScoringStrategy):
         market_score, market_notes = self._score_market(analysis)
         team_score = None  # No team-related data exists in the current schema.
 
-        overall_score = self._score_overall(
-            financial_score, growth_score, risk_score, market_score
-        )
         confidence_score = self._score_confidence(
             financial_score, growth_score, risk_score, market_score, team_score
         )
-        reasoning = self._build_reasoning(
-            financial_notes, growth_notes, risk_notes, market_notes
+        assessed_dimensions = sum(
+            1 for score in (financial_score, growth_score, risk_score, market_score) if score is not None
+        )
+        assessment_status = _compute_assessment_status(
+            confidence_score, coverage_confidence, assessed_dimensions
         )
 
-        breakdown = _build_category_breakdown(financial_score, growth_score, risk_score, market_score, team_score)
+        overall_score = (
+            self._score_overall(financial_score, growth_score, risk_score, market_score)
+            if assessment_status == AssessmentStatus.SUFFICIENT_EVIDENCE
+            else None
+        )
+        reasoning = self._build_reasoning(
+            financial_notes, growth_notes, risk_notes, market_notes, assessment_status
+        )
+
+        breakdown = _build_category_breakdown(
+            financial_score, growth_score, risk_score, market_score, team_score,
+            overall_score_is_present=overall_score is not None,
+        )
         return ScoringResult(
             overall_score=overall_score, financial_score=financial_score, growth_score=growth_score,
             risk_score=risk_score, market_score=market_score, team_score=team_score,
-            confidence_score=confidence_score, reasoning=reasoning,
+            confidence_score=confidence_score, reasoning=reasoning, assessment_status=assessment_status,
             methodology_version=SCORING_METHODOLOGY_VERSION, category_breakdown=breakdown,
         )
 
@@ -502,6 +591,7 @@ class DeterministicScoringStrategy(ScoringStrategy):
         growth_notes: list[str],
         risk_notes: list[str],
         market_notes: list[str],
+        assessment_status: AssessmentStatus,
     ) -> str:
         """Assemble a human-readable explanation from per-dimension notes.
 
@@ -513,6 +603,8 @@ class DeterministicScoringStrategy(ScoringStrategy):
             growth_notes: Notes from `_score_growth`.
             risk_notes: Notes from `_score_risk`.
             market_notes: Notes from `_score_market`.
+            assessment_status: Whether a composite score was withheld
+                (Step 8) — appends an explanatory note when it was.
 
         Returns:
             The assembled reasoning text.
@@ -520,16 +612,26 @@ class DeterministicScoringStrategy(ScoringStrategy):
         all_notes = financial_notes + growth_notes + risk_notes + market_notes
 
         if not all_notes:
-            return (
+            base_text = (
                 "No financial metrics or business analysis were available "
                 "for this document, so no score components could be computed."
             )
+        else:
+            notes_text = " ".join(all_notes)
+            base_text = (
+                f"{notes_text} Team strength could not be assessed, as no "
+                f"team-related data is currently captured for this document."
+            )
 
-        notes_text = " ".join(all_notes)
-        return (
-            f"{notes_text} Team strength could not be assessed, as no "
-            f"team-related data is currently captured for this document."
-        )
+        if assessment_status == AssessmentStatus.INSUFFICIENT_EVIDENCE:
+            base_text += (
+                " There is not yet enough evidence (coverage, confidence, "
+                "and/or number of assessed dimensions) to responsibly present "
+                "a single overall score; the sub-scores above reflect only "
+                "what could be individually assessed."
+            )
+
+        return base_text
 
 
 _default_strategy = DeterministicScoringStrategy()
@@ -611,9 +713,14 @@ class InvestmentScoringService:
         """Calculate (or recalculate) a document's investment score.
 
         Loads the document's financial metrics and business analysis in
-        two direct queries, computes a score via `strategy`, and
-        persists the result. If the document already has a score, it is
-        overwritten in place.
+        two direct queries, plus its overall coverage confidence (via
+        `EvidenceService.get_coverage`, Step 8's input to
+        `assessment_status`), computes a score via `strategy`, and
+        persists the result — including `methodology_version` and
+        `category_breakdown`, which a prior gap left computed but never
+        actually written to the database or returned by the API (fixed
+        alongside this step, since it's the same persistence code path).
+        If the document already has a score, it is overwritten in place.
 
         Args:
             db: The active database session.
@@ -648,7 +755,8 @@ class InvestmentScoringService:
                 "and/or POST /documents/{id}/financial-analysis first."
             )
 
-        result = strategy.compute(financial_metrics, analysis)
+        coverage = await EvidenceService.get_coverage(db, document_id)
+        result = strategy.compute(financial_metrics, analysis, coverage.overall_confidence)
 
         existing = await _fetch_existing_score(db, document_id)
 
@@ -661,6 +769,9 @@ class InvestmentScoringService:
             existing.team_score = result.team_score
             existing.confidence_score = result.confidence_score
             existing.reasoning = result.reasoning
+            existing.assessment_status = result.assessment_status.value
+            existing.methodology_version = result.methodology_version
+            existing.category_breakdown = result.category_breakdown
             score = existing
         else:
             score = InvestmentScore(
@@ -673,6 +784,9 @@ class InvestmentScoringService:
                 team_score=result.team_score,
                 confidence_score=result.confidence_score,
                 reasoning=result.reasoning,
+                assessment_status=result.assessment_status.value,
+                methodology_version=result.methodology_version,
+                category_breakdown=result.category_breakdown,
             )
             db.add(score)
 

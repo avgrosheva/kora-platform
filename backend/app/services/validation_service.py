@@ -13,7 +13,7 @@ finding as equally alarming.
 
 import uuid
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.financial_fact import FinancialMetricType as M
@@ -436,7 +436,28 @@ def run_all_validations(facts: list[FactPoint]) -> list[ValidationFindingResult]
 
 
 class ValidationService:
-    """Persists validation findings, replacing any prior results."""
+    """Persists and retrieves validation findings, replacing any prior results."""
+
+    @staticmethod
+    async def list_findings(db: AsyncSession, document_id: uuid.UUID) -> list[ValidationFinding]:
+        """Fetch a document's persisted validation findings.
+
+        Minimal read accessor added for `findings_service.py` (Evidence
+        Layer plan, Step 5), which wraps these rows into the unified
+        `Finding` shape — the rule engine and `persist_findings` above
+        are unchanged.
+
+        Args:
+            db: The active database session.
+            document_id: The document's id.
+
+        Returns:
+            All `ValidationFinding` rows for the document, unordered.
+        """
+        result = await db.execute(
+            select(ValidationFinding).where(ValidationFinding.document_id == document_id)
+        )
+        return list(result.scalars().all())
 
     @staticmethod
     async def persist_findings(

@@ -101,6 +101,69 @@ class FinancialFactsService:
         return facts_from_financial_facts(rows)
 
     @staticmethod
+    async def replace_facts_for_metrics(
+        db: AsyncSession,
+        document_id: uuid.UUID,
+        metrics: set[FinancialMetricType],
+        facts: list[dict],
+    ) -> list[FinancialFact]:
+        """Replace a document's *uncited* facts for a specific metric set.
+
+        Unlike `replace_facts` (a full wipe-and-replace for the whole
+        document), this only touches rows for `metrics` that have no
+        `source_citation_id` — i.e. rows previously written by the flat
+        `/financial-analysis` pipeline (`FinancialAnalysisService.
+        analyze_financial_metrics`), which has no quote to cite and
+        therefore always writes `source_citation_id=None`. Every row the
+        canonical, citation-backed pipeline
+        (`FinancialAnalysisService.extract_financial_facts`) writes
+        always has a citation, so this can never delete a citation-backed
+        fact — the two pipelines' output coexists rather than one
+        clobbering the other when both have run for the same document.
+
+        Args:
+            db: The active database session.
+            document_id: The document whose facts are being replaced.
+            metrics: Which metrics' uncited rows to clear before
+                inserting the new ones (typically: whichever metrics the
+                caller is about to re-write).
+            facts: The new facts to insert, as dicts matching
+                `create_fact`'s parameters (minus `db`/`document_id`).
+                Every dict here is expected to have no
+                `source_citation_id`, matching this method's scope.
+
+        Returns:
+            The newly created `FinancialFact` rows.
+        """
+        if metrics:
+            await db.execute(
+                delete(FinancialFact).where(
+                    FinancialFact.document_id == document_id,
+                    FinancialFact.metric.in_([m.value for m in metrics]),
+                    FinancialFact.source_citation_id.is_(None),
+                )
+            )
+
+        rows = [
+            FinancialFact(
+                document_id=document_id,
+                metric=f["metric"].value if isinstance(f["metric"], FinancialMetricType) else f["metric"],
+                value=f["value"],
+                currency=f.get("currency"),
+                period_type=f["period_type"].value if isinstance(f["period_type"], PeriodType) else f["period_type"],
+                period=f.get("period"),
+                value_type=f["value_type"].value if isinstance(f["value_type"], FinancialValueType) else f["value_type"],
+                source_citation_id=f.get("source_citation_id"),
+            )
+            for f in facts
+        ]
+        db.add_all(rows)
+        await db.commit()
+        for row in rows:
+            await db.refresh(row)
+        return rows
+
+    @staticmethod
     async def replace_facts(
         db: AsyncSession, document_id: uuid.UUID, facts: list[dict]
     ) -> list[FinancialFact]:

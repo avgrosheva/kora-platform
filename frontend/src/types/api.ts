@@ -92,9 +92,17 @@ export interface FinancialMetricsRead {
   created_at: string;
 }
 
+// null for score records calculated before this status existed, until
+// the next recalculation.
+export type AssessmentStatus = "sufficient_evidence" | "insufficient_evidence" | null;
+
 export interface InvestmentScoreResponse {
   id: string;
   document_id: string;
+  // Either no sub-scores were computable at all, OR assessment_status
+  // is "insufficient_evidence" -- a null here is never a low score, it
+  // means no single composite number is being asserted. Never render a
+  // fallback numeric value (e.g. 0) in its place.
   overall_score: number | null;
   financial_score: number | null;
   growth_score: number | null;
@@ -107,6 +115,7 @@ export interface InvestmentScoreResponse {
   updated_at: string;
   methodology_version: string | null;
   category_breakdown: Record<string, CategoryBreakdownEntry> | null;
+  assessment_status: AssessmentStatus;
 }
 
 export interface DashboardResponse {
@@ -291,6 +300,43 @@ export interface ValidationChecksResponse {
 }
 
 // ============================================================
+// Unified Findings (deterministic + document-stated + Kora-inferred)
+// ============================================================
+//
+// Distinct from ValidationFindingRead/FindingSeverity above (those stay
+// as the deterministic-only /checks endpoint's shape). This is the
+// richer facade from GET /documents/{id}/findings: it also carries
+// document-stated qualitative risk claims and Kora's own inferences, on
+// a 5-level severity scale rather than the 3-level one above.
+
+export type UnifiedFindingType = "deterministic" | "document_stated" | "derived" | "ai_inferred";
+export type UnifiedFindingSeverity = "critical" | "high" | "medium" | "low" | "informational";
+
+export interface UnifiedFinding {
+  title: string;
+  category: string;
+  severity: UnifiedFindingSeverity;
+  type: UnifiedFindingType;
+  evidence: string | null;
+  explanation: string | null;
+  implication: string | null;
+  recommended_next_step: string | null;
+}
+
+export interface FindingsResponse {
+  document_id: string;
+  findings: UnifiedFinding[];
+  critical_count: number;
+  high_count: number;
+  medium_count: number;
+  low_count: number;
+  informational_count: number;
+  deterministic_count: number;
+  document_stated_count: number;
+  ai_inferred_count: number;
+}
+
+// ============================================================
 // Coverage Assessment
 // ============================================================
 
@@ -319,6 +365,8 @@ export interface ChecklistItemResult {
   category: string;
   field_name: string;
   status: FieldStatus;
+  // What to ask for and why it matters, for a non-FOUND field; null when found.
+  recommended_request: string | null;
 }
 
 export interface MissingInformationByCategory {

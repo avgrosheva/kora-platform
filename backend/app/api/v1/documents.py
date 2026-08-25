@@ -84,14 +84,18 @@ from app.services.report_export_service import (
 from app.schemas.coverage import CoverageAssessmentRead
 from app.schemas.derived_metrics import MetricsResponse
 from app.schemas.validation import ValidationChecksResponse
+from app.models.financial_fact import FinancialMetricType
+from app.schemas.findings import FindingRead, FindingsResponse
 from app.services.coverage_service import compute_coverage
 from app.services.derived_metrics_service import calculate_all_derived_metrics, persist_derived_metrics
+from app.services.evidence_service import EvidenceService
 from app.services.financial_facts_service import FinancialFactsService
+from app.services.findings_service import Finding, FindingsService
 from app.services.validation_service import ValidationService, run_all_validations
 
 from app.services.document_analysis_service import DocumentAnalysisService as DAService
 
-from app.services.missing_information_service import compute_missing_information, facts_to_metric_set, MissingInformationService
+from app.services.missing_information_service import compute_missing_information, MissingInformationService
 
 from app.schemas.missing_information import MissingInformationResponse
 
@@ -741,6 +745,88 @@ async def get_document_checks(
     )
 
 
+def _finding_to_read(finding: Finding) -> FindingRead:
+    """Convert a `findings_service.Finding` into its public schema.
+
+    Explicit field-by-field mapping (rather than `model_validate`
+    reaching across the schemas/services boundary) — see
+    `app/schemas/findings.py`'s module docstring for why schemas never
+    import from services directly.
+    """
+    return FindingRead(
+        title=finding.title,
+        category=finding.category,
+        severity=finding.severity.value,
+        type=finding.type.value,
+        evidence=finding.evidence,
+        explanation=finding.explanation,
+        implication=finding.implication,
+        recommended_next_step=finding.recommended_next_step,
+    )
+
+
+@router.get(
+    "/{document_id}/findings",
+    response_model=FindingsResponse,
+    summary="Get a document's unified findings (deterministic, document-stated, and Kora-inferred)",
+)
+async def get_document_findings(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> FindingsResponse:
+    """Return every finding for a document through the unified facade.
+
+    Unlike `GET /{document_id}/checks` (deterministic `ValidationFinding`
+    rows only), this also surfaces document-stated qualitative risk
+    claims and Kora's own inference-rule findings — the fix for Checks
+    collapsing "no deterministic inconsistencies" and "no diligence
+    risks identified" into one indistinguishable "No issues found"
+    message (Evidence Layer plan, Step 7).
+
+    As a side effect, also recomputes and persists the deterministic
+    `ValidationFinding` rows from current financial facts (the same
+    recompute `GET /{document_id}/checks` does) — so this endpoint is
+    self-sufficient and doesn't depend on the frontend having called
+    `/checks` first. `FindingsService.get_findings` only reads what's
+    already persisted; it does not recompute anything itself.
+
+    Args:
+        document_id: The document's id.
+        db: The request-scoped database session.
+        current_user: The authenticated user.
+
+    Returns:
+        Every finding, plus counts by severity and by type.
+
+    Raises:
+        HTTPException: With status 404 if the document does not exist
+            or the user is not a member of its organization.
+    """
+    try:
+        await DocumentService.get_document(db, document_id, current_user.id)
+    except DocumentNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    fact_points = await FinancialFactsService.get_fact_points(db, document_id)
+    await ValidationService.persist_findings(db, document_id, run_all_validations(fact_points))
+
+    findings = await FindingsService.get_findings(db, document_id)
+
+    return FindingsResponse(
+        document_id=document_id,
+        findings=[_finding_to_read(f) for f in findings],
+        critical_count=sum(1 for f in findings if f.severity.value == "critical"),
+        high_count=sum(1 for f in findings if f.severity.value == "high"),
+        medium_count=sum(1 for f in findings if f.severity.value == "medium"),
+        low_count=sum(1 for f in findings if f.severity.value == "low"),
+        informational_count=sum(1 for f in findings if f.severity.value == "informational"),
+        deterministic_count=sum(1 for f in findings if f.type.value == "deterministic"),
+        document_stated_count=sum(1 for f in findings if f.type.value == "document_stated"),
+        ai_inferred_count=sum(1 for f in findings if f.type.value == "ai_inferred"),
+    )
+
+
 @router.get(
     "/{document_id}/coverage",
     response_model=CoverageAssessmentRead,
@@ -755,40 +841,33 @@ async def get_document_coverage(
 
     As a side effect, also recomputes and persists the missing-
     information checklist, since both are derived from the same
-    underlying found/missing field data.
+    underlying found/missing field data. Both this endpoint and
+    `GET /{document_id}/missing-information` read that data exclusively
+    through `EvidenceService` — previously each reimplemented its own
+    found/missing computation (this endpoint had a real, if convoluted,
+    `DocumentAnalysis` lookup; missing-information hardcoded
+    `company_fields_found`/`market_fields_found` to empty sets), which
+    is why the two could disagree about the same document. Routing both
+    through one facade makes that disagreement structurally impossible.
     """
     try:
         await DocumentService.get_document(db, document_id, current_user.id)
     except DocumentNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
-    fact_points = await FinancialFactsService.get_fact_points(db, document_id)
-    financial_metrics_found = facts_to_metric_set(fact_points)
-
-    analysis = await DocumentAnalysisService.get_analysis(db, document_id, current_user.id) if False else None
-    try:
-        from app.services.document_analysis_service import AnalysisNotFoundError as _ANF
-        analysis = await DocumentAnalysisService.get_analysis(db, document_id, current_user.id)
-    except Exception:
-        analysis = None
-
-    company_fields_found = set()
-    market_fields_found = set()
-    if analysis is not None:
-        field_map = {
-            "company_name": analysis.company_name, "industry": analysis.industry,
-            "business_model": analysis.business_model, "summary": analysis.summary,
-            "key_products": analysis.key_products, "revenue_streams": analysis.revenue_streams,
-            "customers": analysis.customers, "competitors": analysis.competitors,
-        }
-        company_fields_found = {k for k, v in field_map.items() if v}
-        market_fields_found = {"competitors"} if analysis.competitors else set()
+    evidence = await EvidenceService.get_evidence(db, document_id)
+    financial_metrics_found = {
+        FinancialMetricType(fact.field_name) for fact in evidence if fact.category == "financial"
+    }
+    company_fields_found = {fact.field_name for fact in evidence if fact.category == "company"}
+    market_fields_found = {fact.field_name for fact in evidence if fact.category == "market"}
+    team_fields_found = {fact.field_name for fact in evidence if fact.category == "team"}
 
     missing_info_result = compute_missing_information(
         financial_metrics_found=financial_metrics_found,
         company_fields_found=company_fields_found,
         market_fields_found=market_fields_found,
-        team_fields_found=set(),
+        team_fields_found=team_fields_found,
     )
     await MissingInformationService.persist_items(db, document_id, missing_info_result)
 
@@ -796,9 +875,14 @@ async def get_document_coverage(
         financial_metrics_found=financial_metrics_found,
         company_fields_found=company_fields_found,
         market_fields_found=market_fields_found,
-        team_fields_found=set(),
+        team_fields_found=team_fields_found,
         citations_count=0,
-        total_extracted_fields=len(fact_points) + len(company_fields_found),
+        total_extracted_fields=(
+            len(financial_metrics_found)
+            + len(company_fields_found)
+            + len(market_fields_found)
+            + len(team_fields_found)
+        ),
     )
 
     return CoverageAssessmentRead(document_id=str(document_id), **coverage_result.model_dump())
@@ -813,18 +897,28 @@ async def get_document_missing_information(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> MissingInformationResponse:
-    """Return the full checklist grouped by category, recomputed from current data."""
+    """Return the full checklist grouped by category, recomputed from current data.
+
+    Reads found/missing fields through `EvidenceService` — the same
+    facade `get_document_coverage` uses — so this endpoint can no
+    longer disagree with Coverage about what was actually found. It
+    previously hardcoded `company_fields_found`/`market_fields_found`
+    to empty sets regardless of what `DocumentAnalysis` actually
+    contained (Evidence Layer plan, Bug B).
+    """
     try:
         await DocumentService.get_document(db, document_id, current_user.id)
     except DocumentNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
-    fact_points = await FinancialFactsService.get_fact_points(db, document_id)
+    evidence = await EvidenceService.get_evidence(db, document_id)
     result = compute_missing_information(
-        financial_metrics_found=facts_to_metric_set(fact_points),
-        company_fields_found=set(),
-        market_fields_found=set(),
-        team_fields_found=set(),
+        financial_metrics_found={
+            FinancialMetricType(fact.field_name) for fact in evidence if fact.category == "financial"
+        },
+        company_fields_found={fact.field_name for fact in evidence if fact.category == "company"},
+        market_fields_found={fact.field_name for fact in evidence if fact.category == "market"},
+        team_fields_found={fact.field_name for fact in evidence if fact.category == "team"},
     )
     await MissingInformationService.persist_items(db, document_id, result)
     return result

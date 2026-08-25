@@ -24,10 +24,12 @@ from app.schemas.due_diligence import DueDiligenceResponse, DueDiligenceSection
 from app.schemas.rag import SearchResultRead
 from app.services.ai_service import AIService, DueDiligenceReportResult
 from app.services.document_service import DocumentService
+from app.services.evidence_service import EvidenceFact, EvidenceService
 from app.services.financial_analysis_service import (
     FinancialAnalysisService,
     FinancialMetricsNotFoundError,
 )
+from app.services.findings_service import Finding, FindingsService, FindingSeverity, FindingType
 from app.services.investment_scoring_service import (
     InvestmentScoreNotFoundError,
     InvestmentScoringService,
@@ -121,6 +123,17 @@ class DueDiligenceContext:
             or `None`.
         scoring_reasoning: The deterministic scoring engine's
             human-readable reasoning, or `None`.
+        evidence: The document's unified evidence (`EvidenceService`),
+            covering `financial_facts` (with periods, unlike the flat
+            snapshot above), `DocumentAnalysis` fields, and qualitative
+            facts. Bug C fix (Evidence Layer plan, Step 6): the report's
+            narrative previously never saw this, only the flat scalar
+            fields above.
+        findings: The document's unified findings (`FindingsService`) —
+            deterministic checks, document-stated risk claims, and
+            Kora's own inferences. Explicitly included in the prompt,
+            grouped by severity, so the model's own narrative can no
+            longer contradict what Kora already knows (Bug C).
     """
 
     original_filename: str
@@ -153,6 +166,8 @@ class DueDiligenceContext:
     market_score: float | None = None
     score_confidence: float | None = None
     scoring_reasoning: str | None = None
+    evidence: list[EvidenceFact] | None = None
+    findings: list[Finding] | None = None
 
 
 def _format_list(items: list[str] | None) -> str:
@@ -184,6 +199,92 @@ def _format_number(value: float | int | None, suffix: str = "") -> str:
     if value is None:
         return _MISSING
     return f"{value:,.2f}{suffix}"
+
+
+_EVIDENCE_CATEGORY_DISPLAY: dict[str, str] = {
+    "financial": "Financial",
+    "company": "Company",
+    "market": "Market",
+    "team": "Team",
+}
+
+
+def _format_evidence(evidence: list[EvidenceFact] | None) -> str:
+    """Format a document's unified evidence for prompt inclusion, by category.
+
+    Args:
+        evidence: The document's evidence, as returned by
+            `EvidenceService.get_evidence`, or `None`.
+
+    Returns:
+        A category-grouped listing of every fact's field name, value,
+        and period (where applicable), or the standard "not available"
+        marker if there is none.
+    """
+    if not evidence:
+        return _MISSING
+
+    lines: list[str] = []
+    for category, label in _EVIDENCE_CATEGORY_DISPLAY.items():
+        facts_in_category = [fact for fact in evidence if fact.category == category]
+        if not facts_in_category:
+            continue
+        lines.append(f"{label}:")
+        for fact in facts_in_category:
+            period_suffix = f" ({fact.period})" if fact.period else ""
+            lines.append(f"  - {fact.field_name}{period_suffix}: {fact.display_value}")
+    return "\n".join(lines) if lines else _MISSING
+
+
+_FINDING_TYPE_LABEL: dict[FindingType, str] = {
+    FindingType.DETERMINISTIC: "Deterministic check",
+    FindingType.DOCUMENT_STATED: "Document-stated",
+    FindingType.DERIVED: "Derived",
+    FindingType.AI_INFERRED: "Kora-inferred",
+}
+
+_FINDING_SEVERITY_DISPLAY_ORDER: tuple[FindingSeverity, ...] = (
+    FindingSeverity.CRITICAL,
+    FindingSeverity.HIGH,
+    FindingSeverity.MEDIUM,
+    FindingSeverity.LOW,
+    FindingSeverity.INFORMATIONAL,
+)
+
+
+def _format_findings(findings: list[Finding] | None) -> str:
+    """Format a document's unified findings for prompt inclusion, by severity.
+
+    This is the core of the Bug C fix: the model sees every deterministic
+    check, document-stated risk, and Kora-inferred concern *before*
+    writing the report's own Risks/Red Flags narrative, so its narrative
+    has no way to contradict what Kora already knows. Every entry's
+    `[type]` label (e.g. `[Kora-inferred]`) is passed straight through
+    into the prompt, so the model is never in a position to blur a
+    Kora-inferred conclusion into a document-stated fact.
+
+    Args:
+        findings: The document's findings, as returned by
+            `FindingsService.get_findings`, or `None`.
+
+    Returns:
+        A severity-grouped listing, or the standard "not available"
+        marker if there are none.
+    """
+    if not findings:
+        return _MISSING
+
+    lines: list[str] = []
+    for severity in _FINDING_SEVERITY_DISPLAY_ORDER:
+        group = [finding for finding in findings if finding.severity == severity]
+        if not group:
+            continue
+        lines.append(f"{severity.value.upper()} severity:")
+        for finding in group:
+            type_label = _FINDING_TYPE_LABEL.get(finding.type, finding.type.value)
+            detail = finding.explanation or finding.evidence or ""
+            lines.append(f"  - [{type_label}] {finding.title}: {detail}")
+    return "\n".join(lines) if lines else _MISSING
 
 
 def build_due_diligence_prompt(
@@ -243,6 +344,15 @@ def build_due_diligence_prompt(
             f"Market sub-score: {_format_number(context.market_score)}/100",
             f"Score confidence: {_format_number(context.score_confidence)}",
             f"Scoring reasoning: {context.scoring_reasoning or _MISSING}",
+            "",
+            "Extracted evidence (Kora's unified evidence layer):",
+            _format_evidence(context.evidence),
+            "",
+            "Findings (Kora's deterministic checks, document-stated risk "
+            "claims, and Kora's own inferences — grouped by severity; "
+            "every one of these MUST be reflected in the Risks and Red "
+            "Flags sections, not omitted):",
+            _format_findings(context.findings),
         ]
     )
 
@@ -290,7 +400,12 @@ async def _fetch_analysis_dict(
 
 
 def _build_context(
-    document: Document, analysis: DocumentAnalysis | None, financial_metrics, score
+    document: Document,
+    analysis: DocumentAnalysis | None,
+    financial_metrics,
+    score,
+    evidence: list[EvidenceFact],
+    findings: list[Finding],
 ) -> DueDiligenceContext:
     """Assemble a `DueDiligenceContext` from the fetched ORM objects.
 
@@ -299,6 +414,8 @@ def _build_context(
         analysis: The document's business analysis, or `None`.
         financial_metrics: The document's financial metrics, or `None`.
         score: The document's investment score, or `None`.
+        evidence: The document's unified evidence (`EvidenceService`).
+        findings: The document's unified findings (`FindingsService`).
 
     Returns:
         The assembled, DB-independent context.
@@ -336,7 +453,83 @@ def _build_context(
         market_score=score.market_score if score else None,
         score_confidence=score.confidence_score if score else None,
         scoring_reasoning=score.reasoning if score else None,
+        evidence=evidence,
+        findings=findings,
     )
+
+
+_SURFACED_SEVERITIES: tuple[FindingSeverity, ...] = (FindingSeverity.CRITICAL, FindingSeverity.HIGH)
+
+
+def _finding_is_mentioned(finding: Finding, report_text: str) -> bool:
+    """Check whether a finding's title appears anywhere in the report's text.
+
+    A simple case-insensitive substring check on `title` (a short,
+    stable, human-readable label) rather than anything more elaborate —
+    this only needs to catch the case where the model discussed a
+    finding somewhere in its own words versus omitted it entirely, not
+    to grade the quality of the discussion.
+
+    Args:
+        finding: The finding to look for.
+        report_text: The combined text of every report section.
+
+    Returns:
+        `True` if the finding's title is present (case-insensitively).
+    """
+    return finding.title.lower() in report_text.lower()
+
+
+def ensure_critical_findings_are_surfaced(
+    sections: list[DueDiligenceSection], findings: list[Finding]
+) -> list[DueDiligenceSection]:
+    """Guarantee every CRITICAL/HIGH finding is reflected in the report.
+
+    This is the Bug C fix's second half: `build_due_diligence_prompt`
+    already tells the model about every finding, but an instruction is
+    not a guarantee — this is a deterministic, post-generation check
+    that makes the "no red flags identified while red_flags is non-empty"
+    contradiction structurally impossible, regardless of what the model
+    actually wrote. Findings already mentioned somewhere in the report
+    (in the model's own words) are left untouched; only genuinely
+    omitted CRITICAL/HIGH findings are injected, appended verbatim to
+    the Red Flags section rather than silently dropped.
+
+    Args:
+        sections: The report's sections, as generated.
+        findings: The document's unified findings.
+
+    Returns:
+        The sections, unchanged if every CRITICAL/HIGH finding was
+        already mentioned somewhere in the report (or there are none);
+        otherwise a new list with the Red Flags section's content
+        extended to include whichever were omitted.
+    """
+    must_be_surfaced = [finding for finding in findings if finding.severity in _SURFACED_SEVERITIES]
+    if not must_be_surfaced:
+        return sections
+
+    combined_text = "\n".join(section.content for section in sections)
+    omitted = [finding for finding in must_be_surfaced if not _finding_is_mentioned(finding, combined_text)]
+    if not omitted:
+        return sections
+
+    addendum_lines = [
+        f"- {finding.title} ({finding.severity.value}): {finding.explanation or finding.evidence or ''}"
+        for finding in omitted
+    ]
+    addendum = (
+        "\n\nThe following findings were identified by Kora's deterministic "
+        "checks and evidence extraction and must be considered regardless of "
+        "whether they are discussed above:\n" + "\n".join(addendum_lines)
+    )
+
+    return [
+        DueDiligenceSection(title=section.title, content=section.content + addendum)
+        if section.title == "Red Flags"
+        else section
+        for section in sections
+    ]
 
 
 def _report_to_sections(report: DueDiligenceReportResult) -> list[DueDiligenceSection]:
@@ -369,11 +562,20 @@ class DueDiligenceService:
         """Generate a complete due diligence report for a document.
 
         Collects all already-computed structured information (business
-        analysis, financial metrics, investment score), retrieves
-        additional supporting context via `RetrievalService`, and
-        generates the report via a single call to `AIService`. Exactly
-        one embedding call (inside `RetrievalService.semantic_search`)
-        and one chat-completion call (inside
+        analysis, financial metrics, investment score, and — Bug C fix,
+        Evidence Layer plan Step 6 — the unified evidence and findings
+        from `EvidenceService`/`FindingsService`), retrieves additional
+        supporting context via `RetrievalService`, and generates the
+        report via a single call to `AIService`. Every finding is passed
+        into the prompt grouped by severity before the model writes its
+        own Risks/Red Flags narrative; after generation,
+        `ensure_critical_findings_are_surfaced` deterministically checks
+        that every CRITICAL/HIGH finding is actually mentioned somewhere
+        in the report, injecting any the model silently omitted rather
+        than allowing a "no red flags identified" narrative to coexist
+        with non-empty structured findings. Exactly one embedding call
+        (inside `RetrievalService.semantic_search`) and one chat-completion
+        call (inside
         `AIService.generate_due_diligence_report`) are made — no
         duplicate AI calls occur, and no existing analysis, financial
         extraction, or scoring is re-run.
@@ -436,6 +638,9 @@ class DueDiligenceService:
         except InvestmentScoreNotFoundError:
             score = None
 
+        evidence = await EvidenceService.get_evidence(db, document_id)
+        findings = await FindingsService.get_findings(db, document_id)
+
         retrieval_query = " ".join(
             filter(None, [analysis.company_name if analysis else None, RETRIEVAL_QUERY_SUFFIX])
         )
@@ -447,7 +652,7 @@ class DueDiligenceService:
             top_k=top_k,
         )
 
-        context = _build_context(document, analysis, financial_metrics, score)
+        context = _build_context(document, analysis, financial_metrics, score, evidence, findings)
         user_message = build_due_diligence_prompt(context, chunks)
 
         report = await AIService.generate_due_diligence_report(user_message)
@@ -462,9 +667,11 @@ class DueDiligenceService:
             for chunk in chunks
         ]
 
+        sections = ensure_critical_findings_are_surfaced(_report_to_sections(report), findings)
+
         return DueDiligenceResponse(
             document_id=document_id,
-            sections=_report_to_sections(report),
+            sections=sections,
             sources=sources,
             model_used=_current_model_name(),
         )

@@ -152,6 +152,14 @@ export function useDocumentChecks(documentId: string | undefined) {
   });
 }
 
+export function useDocumentFindings(documentId: string | undefined) {
+  return useQuery({
+    queryKey: ["documents", "detail", documentId, "findings"],
+    queryFn: () => documentsApi.getFindings(documentId as string),
+    enabled: !!documentId,
+  });
+}
+
 export function useDocumentCoverage(documentId: string | undefined) {
   return useQuery({
     queryKey: ["documents", "detail", documentId, "coverage"],

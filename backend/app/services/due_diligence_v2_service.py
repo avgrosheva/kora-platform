@@ -9,7 +9,13 @@ three things that are deliberately NOT delegated to the LLM:
 2. `red_flags` — surfaced from already-computed `ValidationFinding`
    rows (Section 4's engine), not re-derived by the LLM.
 3. `founder_questions` — generated deterministically from
-   `MissingInformationItem` + `ValidationFinding` rows.
+   `FindingsService` (deterministic checks, document-stated risk claims,
+   and Kora's inferences — Evidence Layer plan, Step 9 rewrite: each
+   question now references the actual evidence/explanation text behind
+   it rather than a generic per-category template) plus
+   `MissingInformationItem`'s `recommended_request` for genuinely
+   missing checklist fields, where there is no extracted value to
+   reference in the first place.
 4. `recommendation_status` — computed by fixed rules over findings/
    coverage, not chosen by the model.
 
@@ -34,6 +40,8 @@ from app.schemas.due_diligence_v2 import (
 )
 from app.schemas.validation import ValidationFindingRead
 from app.services.due_diligence_service import DueDiligenceService
+from app.services.findings_service import Finding, FindingSeverity, FindingType, FindingsService
+from app.services.missing_information_service import get_recommended_request
 
 # Facts surfaced in the executive summary, in display order.
 _VERIFIED_FACT_METRICS = [
@@ -100,6 +108,51 @@ async def _build_verified_facts(db: AsyncSession, document_id: uuid.UUID) -> lis
     return verified
 
 
+def _priority_for_severity(severity: FindingSeverity) -> str:
+    """Map a Finding's 5-level severity onto FounderQuestion's 2-level priority."""
+    return "high" if severity in (FindingSeverity.CRITICAL, FindingSeverity.HIGH) else "medium"
+
+
+def _question_from_finding(finding: Finding) -> FounderQuestion | None:
+    """Build one founder question from a unified `Finding`, referencing
+    its actual evidence/explanation text rather than a generic template
+    (Evidence Layer plan, Step 9 — e.g. quoting the specific customer-
+    concentration claim actually found, not a placeholder).
+
+    Args:
+        finding: The finding to build a question from.
+
+    Returns:
+        A `FounderQuestion`, or `None` if this finding has neither a
+        ready-made `recommended_next_step` nor evidence text to quote.
+    """
+    priority = _priority_for_severity(finding.severity)
+
+    if finding.type == FindingType.DETERMINISTIC and finding.recommended_next_step:
+        # validation_service.py's suggested_question already references
+        # the specific values involved (e.g. the actual EBITDA/revenue
+        # figures) — used as-is.
+        return FounderQuestion(question=finding.recommended_next_step, category=finding.category, priority=priority)
+
+    if finding.type == FindingType.AI_INFERRED and finding.recommended_next_step:
+        return FounderQuestion(
+            question=f'{finding.recommended_next_step} (Kora-inferred from: "{finding.evidence}")',
+            category=finding.category, priority=priority,
+        )
+
+    if finding.type == FindingType.DOCUMENT_STATED and finding.evidence:
+        # No ready-made question exists for a document-stated claim
+        # (Step 5 deliberately left recommended_next_step None here) --
+        # build one that quotes the actual claim text, so the founder
+        # sees exactly what prompted the question.
+        return FounderQuestion(
+            question=f'You mentioned: "{finding.evidence}" — can you share more detail and any mitigation plan?',
+            category=finding.category, priority=priority,
+        )
+
+    return None
+
+
 async def _build_founder_questions(
     db: AsyncSession, document_id: uuid.UUID
 ) -> list[FounderQuestion]:
@@ -110,14 +163,20 @@ async def _build_founder_questions(
         document_id: The document's id.
 
     Returns:
-        Up to 10 questions: one per validation finding that has a
-        `suggested_question`, plus one per missing critical checklist
-        field, high-priority findings first.
+        Up to 10 questions, most severe findings first: one per
+        finding that yields a question (see `_question_from_finding`),
+        plus one per missing checklist field in a curated set of
+        categories, using that field's `recommended_request` (Step 9)
+        rather than a fixed per-field template — there being no
+        extracted value to reference is exactly why these fall back to
+        a well-justified generic request instead.
     """
-    findings_result = await db.execute(
-        select(ValidationFinding).where(ValidationFinding.document_id == document_id)
-    )
-    findings = list(findings_result.scalars().all())
+    findings = await FindingsService.get_findings(db, document_id)
+    severity_order = {
+        FindingSeverity.CRITICAL: 0, FindingSeverity.HIGH: 1, FindingSeverity.MEDIUM: 2,
+        FindingSeverity.LOW: 3, FindingSeverity.INFORMATIONAL: 4,
+    }
+    findings_by_severity = sorted(findings, key=lambda f: severity_order[f.severity])
 
     missing_result = await db.execute(
         select(MissingInformationItem).where(
@@ -128,26 +187,15 @@ async def _build_founder_questions(
     )
     missing_items = list(missing_result.scalars().all())
 
-    questions: list[FounderQuestion] = []
-    for finding in findings:
-        if finding.suggested_question:
-            priority = "high" if finding.severity == "critical" else "medium"
-            questions.append(
-                FounderQuestion(question=finding.suggested_question, category=finding.category, priority=priority)
-            )
+    questions: list[FounderQuestion] = [
+        question for finding in findings_by_severity
+        if (question := _question_from_finding(finding)) is not None
+    ]
 
-    field_question_templates = {
-        "founders": "Who are the founders and what is their background?",
-        "key_executives": "Who are the key executives on the team?",
-        "headcount": "What is the current headcount?",
-        "cap_table": "Can you share the current cap table?",
-        "retention": "What is customer retention over time?",
-        "material_litigation": "Is the company party to any material litigation?",
-    }
     for item in missing_items:
-        template = field_question_templates.get(item.field_name)
-        if template:
-            questions.append(FounderQuestion(question=template, category=item.category, priority="medium"))
+        recommended_request = get_recommended_request(item.field_name)
+        if recommended_request:
+            questions.append(FounderQuestion(question=recommended_request, category=item.category, priority="medium"))
 
     return questions[:10]
 

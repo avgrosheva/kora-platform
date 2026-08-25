@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from app.models.investment_score import InvestmentScore
     from app.models.missing_information_item import MissingInformationItem
     from app.models.organization import Organization
+    from app.models.qualitative_fact import QualitativeFact
     from app.models.source_citation import SourceCitation
     from app.models.user import User
     from app.models.validation_finding import ValidationFinding
@@ -190,6 +191,10 @@ class Document(Base):
         cascade="all, delete-orphan",
     )
     derived_metric_rows: Mapped[list["DerivedMetric"]] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan",
+    )
+    qualitative_facts: Mapped[list["QualitativeFact"]] = relationship(
         back_populates="document",
         cascade="all, delete-orphan",
     )

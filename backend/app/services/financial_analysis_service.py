@@ -20,6 +20,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.financial_fact import FinancialMetricType, FinancialValueType, PeriodType
 from app.models.financial_metrics import FinancialMetrics
 from app.schemas.financial_metrics import FinancialMetricsCreate
 from app.services.ai_service import AIService, FinancialExtractionResult
@@ -47,6 +48,124 @@ _EXTRACTABLE_FIELD_NAMES = (
     "ltv",
     "valuation",
 )
+
+# Which FinancialMetricsCreate fields also get mirrored into
+# financial_facts, and as which FinancialMetricType (Bug A fix — see
+# _facts_from_flat_metrics). Deliberately NOT every extractable field:
+#
+#   - arr, mrr, growth_rate have no corresponding FinancialMetricType at
+#     all today. Inventing one here, as a side effect of a pipeline-
+#     unification fix, would be a bigger, less-reviewable change than
+#     this fix calls for; if a real need for them as facts emerges, that
+#     is its own change with its own review of what a "derived" vs
+#     "document-stated" ARR/MRR fact should mean.
+#   - customers and valuation DO have plausible-looking targets
+#     (REGISTERED_CUSTOMERS, VALUATION_POST_MONEY), but the flat
+#     schema's "customers"/"valuation" fields are looser than what those
+#     specific metric types mean in the canonical, citation-backed
+#     extraction prompt (e.g. REGISTERED_CUSTOMERS is explicitly
+#     distinguished from MONTHLY_ACTIVE_USERS there; a flat "customers"
+#     count could be either, or neither, depending on the document).
+#     Mapping them here would risk mislabeling data with a false-precise
+#     metric type. Left unmapped rather than guessed.
+#
+# The seven mapped below have an unambiguous 1:1 meaning in both
+# schemas, which is what makes mirroring them safe.
+_FLAT_FIELD_TO_METRIC_TYPE: dict[str, FinancialMetricType] = {
+    "revenue": FinancialMetricType.REVENUE,
+    "gross_margin": FinancialMetricType.GROSS_MARGIN,
+    "ebitda": FinancialMetricType.EBITDA,
+    "burn_rate": FinancialMetricType.BURN_RATE,
+    "cash": FinancialMetricType.CASH,
+    "cac": FinancialMetricType.CAC,
+    "ltv": FinancialMetricType.LTV,
+}
+
+# Unit-convention fix (found live, on a real document, after Step 3
+# shipped): the flat schema's own convention states percentages as
+# plain numbers ("gross_margin and growth_rate are percentages
+# expressed as plain numbers (e.g. 42.5 for 42.5%), not fractions" --
+# see _FINANCIAL_SYSTEM_PROMPT in ai_service.py). `financial_facts`,
+# however, already has an established fraction convention for
+# percentage-like metrics (0.425 for 42.5%) -- set by the citation-backed
+# pipeline and load-bearing in two other places that predate this
+# mirror entirely: validation_service.py's check_percentages_out_of_bounds
+# (expects -1.0..1.5) and derived_metrics_service.py's
+# _gross_profit_estimate_series ("Revenue x Gross Margin", which is only
+# dimensionally correct if Gross Margin is a fraction — with the flat
+# convention's raw "71", that formula silently computes a gross profit
+# 100x too large, not just a display glitch). Converting the *other*
+# convention (changing validation_service.py's threshold instead) would
+# leave that gross-profit estimate broken for every flat-mirrored
+# document, which is worse than the false-positive warning being fixed
+# here — so the mirror is what gets normalized, not the established
+# convention it's joining.
+_FRACTION_CONVERTED_FIELDS = frozenset({"gross_margin"})
+
+
+def _normalize_flat_value(field_name: str, value: float) -> float:
+    """Convert one flat-schema value into `financial_facts`' unit convention.
+
+    Args:
+        field_name: The `FinancialMetricsCreate` field name.
+        value: The raw flat-schema value.
+
+    Returns:
+        `value / 100` for fields in `_FRACTION_CONVERTED_FIELDS`
+        (percentage-like metrics); `value` unchanged for everything else
+        (dollar-amount fields need no conversion).
+    """
+    if field_name in _FRACTION_CONVERTED_FIELDS:
+        return value / 100
+    return value
+
+
+def _facts_from_flat_metrics(metrics_data: FinancialMetricsCreate) -> list[dict]:
+    """Mirror a flat extraction's mappable fields into `financial_facts` dicts.
+
+    This is the Bug A fix: `/financial-analysis` previously only wrote
+    `FinancialMetrics` (a single flat row), which Coverage, derived
+    metrics, and validation never read (they read `financial_facts`
+    exclusively) — so a document could show fully-populated financial
+    KPIs in the Financials tab while Coverage reported 0/10. Mirroring
+    the mappable fields here means the one existing user action
+    (`POST /financial-analysis`) now produces both outputs, with no
+    second AI call and no new user-facing step.
+
+    Percentage-like fields (currently just `gross_margin`) are converted
+    from the flat schema's plain-number convention to `financial_facts`'
+    established fraction convention via `_normalize_flat_value` — see
+    that function and `_FRACTION_CONVERTED_FIELDS` for why.
+
+    The flat extraction has no period breakdown or forecast/actual
+    distinction at all (unlike the citation-backed time-series
+    extraction), so every mirrored fact is recorded as
+    `period_type=UNKNOWN`/`period=None`/`value_type=ACTUAL` — the most
+    honest available characterization of "a currently-stated figure with
+    no further time context," not a claim that it's a specific period's
+    actual result.
+
+    Args:
+        metrics_data: The just-computed, normalized flat extraction.
+
+    Returns:
+        One dict (matching `FinancialFactsService.replace_facts_for_metrics`'s
+        `facts` shape) per populated, mappable field. No
+        `source_citation_id` — the flat pipeline has no quote to cite.
+    """
+    return [
+        {
+            "metric": metric_type,
+            "value": _normalize_flat_value(field_name, getattr(metrics_data, field_name)),
+            "currency": metrics_data.currency,
+            "period_type": PeriodType.UNKNOWN,
+            "period": None,
+            "value_type": FinancialValueType.ACTUAL,
+            "source_citation_id": None,
+        }
+        for field_name, metric_type in _FLAT_FIELD_TO_METRIC_TYPE.items()
+        if getattr(metrics_data, field_name) is not None
+    ]
 
 
 class FinancialAnalysisServiceError(Exception):
@@ -213,6 +332,17 @@ class FinancialAnalysisService:
 
         await db.commit()
         await db.refresh(metrics)
+
+        # Bug A fix: mirror the mappable fields into financial_facts too,
+        # since Coverage/derived-metrics/validation read only that table.
+        # See _facts_from_flat_metrics for exactly which fields and why.
+        await FinancialFactsService.replace_facts_for_metrics(
+            db,
+            document_id,
+            metrics=set(_FLAT_FIELD_TO_METRIC_TYPE.values()),
+            facts=_facts_from_flat_metrics(metrics_data),
+        )
+
         return metrics
 
     @staticmethod

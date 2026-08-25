@@ -7,6 +7,7 @@ import type {
   DueDiligenceResponse,
   DueDiligenceV2Response,
   FinancialMetricsRead,
+  FindingsResponse,
   InvestmentScoreResponse,
   MetricsResponse,
   ValidationChecksResponse,
@@ -132,6 +133,11 @@ export const documentsApi = {
 
   getChecks: async (documentId: string): Promise<ValidationChecksResponse> => {
     const { data } = await apiClient.get<ValidationChecksResponse>(`/documents/${documentId}/checks`);
+    return data;
+  },
+
+  getFindings: async (documentId: string): Promise<FindingsResponse> => {
+    const { data } = await apiClient.get<FindingsResponse>(`/documents/${documentId}/findings`);
     return data;
   },
 

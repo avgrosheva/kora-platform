@@ -159,7 +159,21 @@ field is an object with "value", "quote", "page_number", and \
   "target_customers": [{...same shape...}, ...],
   "competitors": [{...same shape...}, ...],
   "main_risks": [{...same shape...}, ...],
-  "growth_opportunities": [{...same shape...}, ...]
+  "growth_opportunities": [{...same shape...}, ...],
+  "qualitative_facts": [
+    {
+      "category": one of ["customer_risk", "legal_regulatory",
+        "operational_dependency", "ip_ownership", "team_risk",
+        "market_risk", "opportunity", "other"],
+      "claim_text": string,
+      "severity_hint": one of ["critical", "high", "medium", "low",
+        "informational"] or null,
+      "quote": string,
+      "page_number": int|null,
+      "confidence": float
+    },
+    ...
+  ]
 }
 
 Rules:
@@ -175,9 +189,35 @@ explicitly and unambiguously stated; lower for information that required \
 interpretation).
 - For array fields, each item is its own object with its own quote — do \
 NOT combine multiple facts into one quote.
+- "qualitative_facts" is a structured, categorized restatement of the same \
+underlying claims as "main_risks"/"growth_opportunities" — extract every \
+distinct risk, dependency, ownership question, or opportunity you find as \
+its own entry here too, each with the category it best fits and (for \
+risk-shaped claims) a severity_hint reflecting how serious it looks from \
+the document alone. Every entry needs its own verbatim "quote" — never \
+combine multiple claims into one entry.
+- "severity_hint" is null for "opportunity" claims (severity does not \
+apply to a positive claim) and for anything else where no risk is being \
+described. For genuine risk claims, classify severity based only on what \
+the document itself says — do not escalate or downplay based on outside \
+knowledge of the industry.
 - Do not include markdown formatting or commentary. Return the JSON object \
 only."""
 
+# KNOWN GAP (observed live, not yet fixed — next iteration): the model
+# sometimes emits a metric value outside FinancialMetricType's enum (seen
+# in practice: "arr", presumably because ARR is a natural label for the
+# document's own wording but has no FinancialMetricType member — see
+# financial_analysis_service.py's _FLAT_FIELD_TO_METRIC_TYPE docstring,
+# which documents this same gap for the flat pipeline). When that
+# happens, Pydantic validation fails, the one correction retry in
+# _run_structured_completion_with_correction is not always enough to
+# get the model to drop the invalid value, and the whole extraction call
+# fails with a 502 — losing every other, validly-classified fact in that
+# same response, not just the invalid one. A more targeted fix (e.g.
+# validating per-item and dropping only the invalid entries, or adding
+# an explicit ARR/MRR-are-not-valid-metrics rule to this prompt) is
+# deferred rather than done reactively here.
 _CITED_FINANCIAL_SYSTEM_PROMPT = """You are a financial analyst extracting \
 time-series financial facts from company documents, with citations.
 

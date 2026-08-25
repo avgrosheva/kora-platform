@@ -24,6 +24,12 @@ class ChecklistItemResult(BaseModel):
         field_name: The specific field within that category.
         status: Whether this field was found, missing, ambiguous,
             contradictory, or not applicable.
+        recommended_request: For a non-`FOUND` field, a concrete
+            statement of what to ask the company for and why it matters
+            (Evidence Layer plan, Step 9) — e.g. "Request a cap table
+            showing fully-diluted ownership; needed to assess dilution
+            and existing investor rights." `None` for `FOUND` fields,
+            since there's nothing to request.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -31,6 +37,7 @@ class ChecklistItemResult(BaseModel):
     category: str
     field_name: str
     status: FieldStatus
+    recommended_request: str | None = None
 
 
 class MissingInformationByCategory(BaseModel):

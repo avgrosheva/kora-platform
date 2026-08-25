@@ -12,6 +12,7 @@ from typing import Generic, TypeVar
 from pydantic import BaseModel, ConfigDict
 
 from app.models.financial_fact import FinancialMetricType, FinancialValueType, PeriodType
+from app.models.qualitative_fact import QualitativeFactCategory, QualitativeFactSeverityHint
 
 T = TypeVar("T")
 
@@ -39,6 +40,38 @@ class CitedValue(BaseModel, Generic[T]):
     confidence: float | None = None
 
 
+class CitedQualitativeFact(BaseModel):
+    """A single structured, non-numeric claim with its citation.
+
+    This is the Evidence Layer plan's Step 4 fix: `main_risks` and
+    `growth_opportunities` above are free-text strings with no
+    category or severity a downstream consumer (Coverage, Findings)
+    can act on. `qualitative_facts` on `CitedBusinessAnalysisResult`
+    asks the same extraction call for the same underlying claims again,
+    but structured — categorized, with a severity signal where
+    applicable — instead of asking the model for a second, separate
+    interpretation of the document.
+
+    Attributes:
+        category: Which domain this claim concerns.
+        claim_text: The claim, in the model's own normalized words.
+        severity_hint: How concerning this claim is, or `None` if
+            severity doesn't apply (e.g. an `OPPORTUNITY` claim).
+        quote: The exact, verbatim supporting passage.
+        page_number: The page the quote appears on, or `None`.
+        confidence: The model's confidence in this specific claim.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    category: QualitativeFactCategory
+    claim_text: str
+    severity_hint: QualitativeFactSeverityHint | None
+    quote: str
+    page_number: int | None
+    confidence: float
+
+
 class CitedBusinessAnalysisResult(BaseModel):
     """Citation-hardened business analysis, mirroring `AIAnalysisResult`
     field-for-field but with every value wrapped in `CitedValue`.
@@ -48,6 +81,14 @@ class CitedBusinessAnalysisResult(BaseModel):
     — each competitor, each risk — carries its own citation, per
     Section 1's requirement that array items have independent
     provenance.
+
+    `qualitative_facts` is additive on top of `main_risks`/
+    `growth_opportunities`, not a replacement for them: those two
+    remain exactly as they were (still map to `DocumentAnalysis.risks`/
+    `opportunities`, still what the Checks tab and due-diligence report
+    read), while `qualitative_facts` is the new, structured,
+    category-and-severity-bearing view of the same underlying claims
+    that `EvidenceService`/`FindingsService` read instead.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -62,6 +103,7 @@ class CitedBusinessAnalysisResult(BaseModel):
     competitors: list[CitedValue[str]]
     main_risks: list[CitedValue[str]]
     growth_opportunities: list[CitedValue[str]]
+    qualitative_facts: list[CitedQualitativeFact]
 
 
 class CitedFinancialFactItem(BaseModel):

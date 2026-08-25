@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shared/empty-state";
 import { useAnalysis, useAnalyzeDocument } from "../hooks";
 import type { DocumentRead } from "@/types/api";
+import { DecisionSnapshot } from "./decision-snapshot";
 
 function TagList({ items }: { items: string[] | null }) {
   if (!items || items.length === 0) return <p className="text-sm text-muted-foreground">—</p>;
@@ -39,6 +40,7 @@ export function AnalysisTab({ document }: { document: DocumentRead }) {
   if (!analysis) {
     return (
       <div className="space-y-4">
+        <DecisionSnapshot document={document} />
         <EmptyState
           icon={Sparkles}
           title="No business analysis yet"
@@ -67,6 +69,8 @@ export function AnalysisTab({ document }: { document: DocumentRead }) {
 
   return (
     <div className="space-y-4">
+      <DecisionSnapshot document={document} />
+
       <div className="flex justify-end">
         <button
           type="button"

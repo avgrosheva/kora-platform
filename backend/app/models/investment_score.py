@@ -1,5 +1,6 @@
 """SQLAlchemy ORM model for deterministic investment scores."""
 
+import enum
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -16,6 +17,32 @@ if TYPE_CHECKING:
     from app.models.document import Document
 
 from sqlalchemy.dialects.postgresql import JSONB
+
+
+class AssessmentStatus(str, enum.Enum):
+    """Whether enough evidence exists to responsibly present a single
+    overall investment score (Evidence Layer plan, Step 8).
+
+    Before this, `overall_score` could look confident (e.g. "75/100")
+    even when only one of four scoring dimensions had any data at all —
+    missing dimensions were silently dropped from the weighted average's
+    denominator, which hides the gap rather than surfacing it.
+
+    Attributes:
+        SUFFICIENT_EVIDENCE: `overall_score` is a real weighted
+            composite, per `investment_scoring_service.py`'s fixed
+            thresholds (coverage, confidence, and dimension-count all
+            being adequate).
+        INSUFFICIENT_EVIDENCE: `overall_score` is `None` — not a
+            lowered number, an absent one. The per-category sub-scores
+            (`financial_score`, etc.) are still populated wherever they
+            individually have data; only the single composite number is
+            withheld, since presenting one would overclaim precision
+            the evidence doesn't support.
+    """
+
+    SUFFICIENT_EVIDENCE = "sufficient_evidence"
+    INSUFFICIENT_EVIDENCE = "insufficient_evidence"
 
 
 class InvestmentScore(Base):
@@ -37,7 +64,10 @@ class InvestmentScore(Base):
         document_id: The scored document. Unique, so each document has
             at most one score.
         overall_score: The weighted composite score (0-100), or `None`
-            if no sub-scores could be computed at all.
+            if no sub-scores could be computed at all, or if
+            `assessment_status` is `INSUFFICIENT_EVIDENCE` (Step 8: a
+            composite is withheld rather than presented as a falsely
+            precise number when the underlying evidence is too thin).
         financial_score: Score reflecting revenue/margin/profitability
             strength, or `None` if no financial metrics exist.
         growth_score: Score reflecting growth trajectory, or `None` if
@@ -64,6 +94,15 @@ class InvestmentScore(Base):
         updated_at: Timezone-aware timestamp when the record was last
             recalculated.
         document: The related `Document`.
+        methodology_version: The scoring methodology version that
+            produced this record (see `app.core.scoring_config`).
+        category_breakdown: Per-category weight/score/contribution
+            detail, keyed by dimension (Section 6's transparent
+            breakdown) — see `_build_category_breakdown` in
+            `investment_scoring_service.py`.
+        assessment_status: Whether enough evidence exists to present
+            `overall_score` as a single composite number. See
+            `AssessmentStatus`.
     """
 
     __tablename__ = "investment_scores"
@@ -103,6 +142,7 @@ class InvestmentScore(Base):
     document: Mapped["Document"] = relationship(back_populates="investment_score")
     methodology_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
     category_breakdown: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    assessment_status: Mapped[AssessmentStatus | None] = mapped_column(String(30), nullable=True)
 
     def __repr__(self) -> str:
         """Return a debug-friendly representation of the score.

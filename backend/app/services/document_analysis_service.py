@@ -13,12 +13,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.document import Document, DocumentStatus
 from app.models.document_analysis import DocumentAnalysis
+from app.models.qualitative_fact import QualitativeFactType
 from app.schemas.document_analysis import DocumentAnalysisCreate
 from app.services.ai_service import AIAnalysisResult, AIService
 from app.services.document_service import DocumentNotFoundError, DocumentService
 
 from app.services.ai_service import AIService, EXTRACTION_VERSION
 from app.services.citation_service import CitationService
+from app.services.qualitative_facts_service import QualitativeFactsService
 
 
 class DocumentAnalysisServiceError(Exception):
@@ -164,7 +166,12 @@ class DocumentAnalysisService:
         `analyze_document` (full backward compatibility for existing
         API consumers), but additionally writes one `SourceCitation`
         row per non-null extracted field, including one per array item
-        (each competitor, each risk gets its own citation).
+        (each competitor, each risk gets its own citation). Also
+        persists the extraction's structured `qualitative_facts` as
+        `QualitativeFact` rows (Evidence Layer plan, Step 4), each with
+        its own citation — this is additive to, not a replacement for,
+        `main_risks`/`growth_opportunities`, which continue to populate
+        `DocumentAnalysis.risks`/`opportunities` exactly as before.
 
         Args:
             db: The active database session.
@@ -218,6 +225,7 @@ class DocumentAnalysisService:
         await db.refresh(analysis)
 
         await _persist_citations_for_analysis(db, document_id, cited)
+        await _persist_qualitative_facts(db, document_id, cited)
 
         return analysis
 
@@ -257,6 +265,39 @@ async def _persist_citations_for_analysis(db, document_id, cited) -> None:
                     page_number=item.page_number, confidence=item.confidence,
                     extraction_version=EXTRACTION_VERSION,
                 )
+
+
+async def _persist_qualitative_facts(db, document_id, cited) -> None:
+    """Replace a document's structured qualitative facts with a fresh set.
+
+    One `SourceCitation` is written per fact first (each qualitative
+    fact always has a quote, unlike the flat financial pipeline, so
+    every `QualitativeFact` this writes has a `source_citation_id` —
+    contrast with `financial_analysis_service.py`'s flat-metric facts,
+    which never do).
+
+    Args:
+        db: The active database session.
+        document_id: The document these facts belong to.
+        cited: The validated `CitedBusinessAnalysisResult`.
+    """
+    fact_dicts = []
+    for index, item in enumerate(cited.qualitative_facts):
+        citation = await CitationService.create_citation(
+            db, document_id, f"qualitative_facts[{index}]", item.quote,
+            page_number=item.page_number, confidence=item.confidence,
+            extraction_version=EXTRACTION_VERSION,
+        )
+        fact_dicts.append({
+            "category": item.category,
+            "claim_text": item.claim_text,
+            "fact_type": QualitativeFactType.DOCUMENT_STATED,
+            "severity_hint": item.severity_hint,
+            "confidence": item.confidence,
+            "source_citation_id": citation.id,
+        })
+
+    await QualitativeFactsService.replace_facts(db, document_id, fact_dicts)
 
 
 async def _get_existing_analysis(

@@ -1,12 +1,12 @@
 "use client";
 
 import { toast } from "sonner";
-import { Gauge } from "lucide-react";
+import { Gauge, ShieldQuestion } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shared/empty-state";
-import { useCalculateScore, useFinancialMetrics, useScore } from "../hooks";
+import { useCalculateScore, useDocumentCoverage, useFinancialMetrics, useScore } from "../hooks";
 import type { DocumentRead } from "@/types/api";
 
 import { ScoreBreakdownCard } from "./score-breakdown-card";
@@ -16,7 +16,7 @@ function SubScore({ label, value }: { label: string; value: number | null }) {
     <div>
       <div className="mb-1 flex items-center justify-between text-xs">
         <span className="text-muted-foreground">{label}</span>
-        <span className="font-medium">{value !== null ? value.toFixed(0) : "—"}</span>
+        <span className="font-medium">{value !== null ? value.toFixed(0) : "Not assessable"}</span>
       </div>
       <Progress value={value ?? 0} className="h-1.5" />
     </div>
@@ -26,6 +26,7 @@ function SubScore({ label, value }: { label: string; value: number | null }) {
 export function ScoreTab({ document }: { document: DocumentRead }) {
   const { data: financials } = useFinancialMetrics(document.id);
   const { data: score, isLoading } = useScore(document.id);
+  const { data: coverage } = useDocumentCoverage(document.id);
   const calculateScore = useCalculateScore(document.id);
 
   const canScore = !!financials;
@@ -81,15 +82,30 @@ export function ScoreTab({ document }: { document: DocumentRead }) {
 
       <Card className="border-border/50">
         <CardContent className="space-y-6 py-6">
-          <div className="text-center">
-            <p className="text-xs text-muted-foreground">Overall Score</p>
-            <p className="text-5xl font-bold tracking-tight">
-              {score.overall_score !== null ? score.overall_score.toFixed(1) : "—"}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Confidence: {score.confidence_score !== null ? `${(score.confidence_score * 100).toFixed(0)}%` : "—"}
-            </p>
-          </div>
+          {score.overall_score !== null ? (
+            <div className="text-center">
+              <p className="text-xs text-muted-foreground">Overall Score</p>
+              <p className="text-5xl font-bold tracking-tight">{score.overall_score.toFixed(1)}</p>
+              <p className="text-xs text-muted-foreground">
+                Confidence: {score.confidence_score !== null ? `${(score.confidence_score * 100).toFixed(0)}%` : "—"}
+              </p>
+            </div>
+          ) : (
+            // Never show a headline number (not even "—" in its place) when
+            // there isn't enough evidence for one -- that reads as a value,
+            // not an absence. Show why, and what IS known, instead.
+            <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border/50 py-6 text-center">
+              <ShieldQuestion className="h-6 w-6 text-muted-foreground" />
+              <p className="text-sm font-medium">Not enough evidence for a single score yet</p>
+              <p className="max-w-sm text-xs text-muted-foreground">
+                {score.confidence_score !== null && (
+                  <>Confidence: {(score.confidence_score * 100).toFixed(0)}%. </>
+                )}
+                {coverage && <>Analysis coverage: {(coverage.overall_confidence * 100).toFixed(0)}%. </>}
+                The signals below reflect only what could be individually assessed.
+              </p>
+            </div>
+          )}
 
           <div className="grid gap-4 sm:grid-cols-2">
             <SubScore label="Financial" value={score.financial_score} />

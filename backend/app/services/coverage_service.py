@@ -48,14 +48,18 @@ def compute_coverage(
 
     Args:
         financial_metrics_found: Which of `REQUIRED_FINANCIAL_METRICS`
-            were actually found for this document.
-        company_fields_found: Which of `REQUIRED_COMPANY_FIELDS` were
-            found.
-        market_fields_found: Which of `REQUIRED_MARKET_FIELDS` were
-            found.
-        team_fields_found: Which of `REQUIRED_TEAM_FIELDS` were found
-            (expected to be empty given the current lack of team
-            extraction).
+            were actually found for this document. May include metrics
+            outside the checklist (e.g. a document with facts beyond
+            what's required) — only intersected with the checklist.
+        company_fields_found: Same idea for `REQUIRED_COMPANY_FIELDS`.
+            Since `EvidenceService` (from Step 4) also surfaces
+            qualitative facts under the "company" category with
+            fact-unique field names that aren't checklist items (see
+            `evidence_service.py`), this set may contain names beyond
+            the 8 required ones — always intersected with the checklist
+            before counting, so `found` can never exceed `required`.
+        market_fields_found: Same idea for `REQUIRED_MARKET_FIELDS`.
+        team_fields_found: Same idea for `REQUIRED_TEAM_FIELDS`.
         citations_count: The number of extracted fields that have at
             least one `SourceCitation`.
         total_extracted_fields: The total number of fields extracted
@@ -68,23 +72,27 @@ def compute_coverage(
         The computed `CoverageAssessmentResult`.
     """
     required_financial_found = financial_metrics_found & set(REQUIRED_FINANCIAL_METRICS)
+    required_company_found = company_fields_found & set(REQUIRED_COMPANY_FIELDS)
+    required_market_found = market_fields_found & set(REQUIRED_MARKET_FIELDS)
+    required_team_found = team_fields_found & set(REQUIRED_TEAM_FIELDS)
+
     financial_score = len(required_financial_found) / len(REQUIRED_FINANCIAL_METRICS)
-    company_score = len(company_fields_found) / len(REQUIRED_COMPANY_FIELDS)
-    market_score = len(market_fields_found) / len(REQUIRED_MARKET_FIELDS)
-    team_score = len(team_fields_found) / len(REQUIRED_TEAM_FIELDS)
+    company_score = len(required_company_found) / len(REQUIRED_COMPANY_FIELDS)
+    market_score = len(required_market_found) / len(REQUIRED_MARKET_FIELDS)
+    team_score = len(required_team_found) / len(REQUIRED_TEAM_FIELDS)
 
     coverage = {
         "company": CategoryCoverage(
-            found=len(company_fields_found), required=len(REQUIRED_COMPANY_FIELDS), score=company_score
+            found=len(required_company_found), required=len(REQUIRED_COMPANY_FIELDS), score=company_score
         ),
         "financial": CategoryCoverage(
-            found=len(financial_metrics_found), required=len(REQUIRED_FINANCIAL_METRICS), score=financial_score
+            found=len(required_financial_found), required=len(REQUIRED_FINANCIAL_METRICS), score=financial_score
         ),
         "market": CategoryCoverage(
-            found=len(market_fields_found), required=len(REQUIRED_MARKET_FIELDS), score=market_score
+            found=len(required_market_found), required=len(REQUIRED_MARKET_FIELDS), score=market_score
         ),
         "team": CategoryCoverage(
-            found=len(team_fields_found), required=len(REQUIRED_TEAM_FIELDS), score=team_score
+            found=len(required_team_found), required=len(REQUIRED_TEAM_FIELDS), score=team_score
         ),
     }
 

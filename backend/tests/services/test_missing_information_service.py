@@ -2,11 +2,19 @@
 
 from app.models.financial_fact import FinancialMetricType as M
 from app.schemas.missing_information import FieldStatus
-from app.services.coverage_service import REQUIRED_FINANCIAL_METRICS
+from app.services.coverage_service import (
+    REQUIRED_COMPANY_FIELDS,
+    REQUIRED_FINANCIAL_METRICS,
+    REQUIRED_MARKET_FIELDS,
+    REQUIRED_TEAM_FIELDS,
+)
 from app.services.missing_information_service import (
+    CUSTOMER_DETAIL_FIELDS,
+    INVESTMENT_FIELDS,
     LEGAL_FIELDS,
     compute_missing_information,
     facts_to_metric_set,
+    get_recommended_request,
 )
 from tests.fixtures.marketgo import marketgo_facts
 
@@ -72,6 +80,42 @@ class TestComputeMissingInformation:
         )
         category_names = {c.category for c in result.by_category}
         assert category_names == {"company", "financial", "market", "team", "customers", "investment", "legal"}
+
+
+class TestRecommendedRequest:
+    def test_every_registry_field_has_a_recommended_request(self):
+        """No silent gaps: every field name across every checklist
+        registry must resolve to a real recommended_request (Step 9)."""
+        all_field_names = (
+            [m.value for m in REQUIRED_FINANCIAL_METRICS]
+            + REQUIRED_COMPANY_FIELDS
+            + REQUIRED_MARKET_FIELDS
+            + REQUIRED_TEAM_FIELDS
+            + CUSTOMER_DETAIL_FIELDS
+            + INVESTMENT_FIELDS
+            + LEGAL_FIELDS
+        )
+        for field_name in all_field_names:
+            assert get_recommended_request(field_name) is not None, f"no recommended_request for {field_name!r}"
+
+    def test_missing_field_gets_a_recommended_request(self):
+        result = compute_missing_information(
+            financial_metrics_found=set(), company_fields_found=set(),
+            market_fields_found=set(), team_fields_found=set(),
+        )
+        cap_table_item = next(i for i in result.items if i.field_name == "cap_table")
+        assert cap_table_item.status == FieldStatus.MISSING
+        assert cap_table_item.recommended_request is not None
+        assert "cap table" in cap_table_item.recommended_request.lower()
+
+    def test_found_field_has_no_recommended_request(self):
+        result = compute_missing_information(
+            financial_metrics_found={M.REVENUE}, company_fields_found=set(),
+            market_fields_found=set(), team_fields_found=set(),
+        )
+        revenue_item = next(i for i in result.items if i.field_name == "revenue")
+        assert revenue_item.status == FieldStatus.FOUND
+        assert revenue_item.recommended_request is None
 
 
 class TestFactsToMetricSet:

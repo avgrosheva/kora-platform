@@ -9,6 +9,18 @@ call limit is reached. No conversation memory is persisted (matches
 the original chat milestone's constraint); each request is self-
 contained, though within one request multiple back-and-forth turns
 with the model are allowed to satisfy the tool-calling protocol.
+
+`document_id` is optional and organization-scoped: the `/chat` page has
+no document selector at all today (only `search_document_chunks` was
+ever truly organization-wide before this fix), so `document_id` is
+`None` on effectively every real request. `get_missing_information`,
+`get_findings`, and `get_qualitative_facts` fall back to an
+organization-wide answer (aggregated across every completed document,
+each result tagged with which document it came from) when that happens,
+rather than returning "no document in scope" — see `chat_tools.py`'s
+`_completed_org_documents`. `get_financial_time_series`/`calculate_metric`
+still require a specific document, since a single metric value has no
+sensible organization-wide aggregate.
 """
 
 import json
@@ -24,7 +36,9 @@ from app.services.chat_tools import (
     TOOL_SPECS,
     execute_calculate_metric,
     execute_get_financial_time_series,
+    execute_get_findings,
     execute_get_missing_information,
+    execute_get_qualitative_facts,
     execute_search_document_chunks,
 )
 
@@ -41,10 +55,24 @@ your own knowledge or assumptions.
 - For any calculated figure (growth rates, ratios, margins), ALWAYS call \
 calculate_metric rather than computing it yourself — you do not have \
 reliable arithmetic and must not present an estimate as a precise figure.
+- For any question about risks, red flags, issues, or concerns, call \
+get_findings. For questions about specific qualitative claims or growth \
+opportunities, call get_qualitative_facts (get_findings excludes \
+opportunities, since an opportunity is not a risk finding).
 - If a tool returns no data or an error, say so plainly rather than \
 guessing.
 - Base your final answer only on tool results and the conversation so far. \
-If nothing found relates to the question, say you don't know.
+If nothing found relates to the question, say you don't know — never \
+fabricate a figure, claim, or missing-information status that no tool \
+result actually supports.
+- Every claim in your final answer must be explicitly labeled with where \
+it came from, using one of these exact framings: "Document says" (a \
+document_stated qualitative fact, or a value from get_financial_time_series/ \
+search_document_chunks), "Kora calculated" (a result from calculate_metric, \
+or a deterministic finding from get_findings), "Kora inferred" (an \
+ai_inferred finding from get_findings — never present one of these as \
+something the document itself states), or "Information unavailable" (the \
+tools returned nothing relevant). Do not blur these categories together.
 - Once you have enough information, provide a clear, direct answer. Do not \
 call more tools than necessary."""
 
@@ -164,7 +192,17 @@ async def _dispatch_tool(
         summary, tool_result = await execute_calculate_metric(db, document_id, arguments)
         return summary, tool_result, []
     if tool_name == "get_missing_information":
-        summary, tool_result = await execute_get_missing_information(db, document_id, arguments)
+        summary, tool_result = await execute_get_missing_information(
+            db, organization_id, document_id, actor_id, arguments
+        )
+        return summary, tool_result, []
+    if tool_name == "get_findings":
+        summary, tool_result = await execute_get_findings(db, organization_id, document_id, actor_id, arguments)
+        return summary, tool_result, []
+    if tool_name == "get_qualitative_facts":
+        summary, tool_result = await execute_get_qualitative_facts(
+            db, organization_id, document_id, actor_id, arguments
+        )
         return summary, tool_result, []
 
     return f"Unknown tool: {tool_name}", {"error": f"Unknown tool: {tool_name}"}, []

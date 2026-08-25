@@ -53,6 +53,78 @@ INVESTMENT_FIELDS = ["cap_table", "ownership", "round_terms", "pre_money_valuati
 LEGAL_FIELDS = ["material_litigation", "licenses", "ip_ownership", "data_privacy", "regulatory_risks"]
 CUSTOMER_DETAIL_FIELDS = ["retention", "churn", "concentration", "cohorts", "nps", "repeat_rate"]
 
+# What to ask for, and why it matters, per checklist field name (Evidence
+# Layer plan, Step 9). Deliberately generic across ANY document — these
+# describe the FIELD, not a specific company's data (a field that's
+# actually MISSING has no extracted value to reference in the first
+# place; see due_diligence_v2_service.py's founder-question generation
+# for where a real extracted value IS referenced, when one exists).
+_RECOMMENDED_REQUESTS: dict[str, str] = {
+    # Financial (FinancialMetricType values)
+    "revenue": "Request historical revenue by period; needed to assess scale and trajectory.",
+    "gross_margin": "Request gross margin by period; needed to assess unit economics and scalability.",
+    "ebitda": "Request EBITDA by period; needed to assess operating profitability.",
+    "net_income": "Request net income by period; needed to assess bottom-line profitability after all expenses.",
+    "cash": "Request current cash on hand; needed to assess near-term solvency.",
+    "debt": "Request outstanding debt and terms; needed to assess leverage and repayment obligations.",
+    "burn_rate": "Request monthly burn rate; needed to assess runway and capital efficiency.",
+    "cac": "Request customer acquisition cost; needed to assess go-to-market efficiency.",
+    "ltv": "Request customer lifetime value (or the inputs to calculate it); needed to assess unit economics alongside CAC.",
+    "funding_amount": "Request total funding raised to date, by round; needed to assess capital history and dilution.",
+    # Company
+    "company_name": "Confirm the legal company name.",
+    "industry": "Confirm the industry/category the company operates in; needed for market context.",
+    "business_model": "Request a description of how the company generates revenue.",
+    "summary": "Request a company overview if not already provided.",
+    "key_products": "Request a list of key products or services.",
+    "revenue_streams": "Request a breakdown of distinct revenue streams.",
+    "customers": "Request a description of the target customer segment(s).",
+    "competitors": "Request a list of known competitors.",
+    # Market
+    "market_size": "Request the addressable market size (TAM/SAM/SOM) and its source; needed to assess growth ceiling.",
+    "competitive_advantages": "Request a description of durable competitive advantages (moat).",
+    "market_risks": "Ask directly about known market risks (regulatory, competitive, macro).",
+    # Team
+    "founders": "Request founder names and backgrounds; needed to assess founder-market fit.",
+    "key_executives": "Request key executive names and backgrounds.",
+    "headcount": "Request current headcount, ideally by function.",
+    "hiring_plan": "Request near-term hiring plans and key open roles.",
+    "key_person_dependency": "Ask directly whether the business depends critically on any single individual.",
+    # Customer detail
+    "retention": "Request customer/revenue retention rates over time; needed to assess durability of revenue.",
+    "churn": "Request churn rate by period; needed to assess customer durability.",
+    "concentration": "Request the percentage of revenue from the largest customer(s); needed to assess concentration risk.",
+    "cohorts": "Request cohort retention data; needed to assess whether unit economics improve or decay over time.",
+    "nps": "Request Net Promoter Score or another customer satisfaction metric, if tracked.",
+    "repeat_rate": "Request repeat purchase/usage rate, if applicable to the business model.",
+    # Investment
+    "cap_table": "Request a fully-diluted cap table; needed to assess ownership, dilution, and existing investor rights.",
+    "ownership": "Request a breakdown of current ownership by stakeholder.",
+    "round_terms": "Request the terms of the current or most recent funding round.",
+    "pre_money_valuation": "Request the pre-money valuation for the current or most recent round.",
+    "use_of_funds": "Request a breakdown of intended use of funds for this raise.",
+    # Legal
+    "material_litigation": "Ask directly whether the company is party to any material litigation.",
+    "licenses": "Request confirmation of required licenses or regulatory approvals held.",
+    "ip_ownership": "Request confirmation that IP is assigned to the company, including from contractors/co-founders.",
+    "data_privacy": "Request a description of data privacy/compliance practices (e.g. GDPR, CCPA) if relevant.",
+    "regulatory_risks": "Ask directly about known regulatory risks or pending regulatory changes affecting the business.",
+}
+
+
+def get_recommended_request(field_name: str) -> str | None:
+    """Look up what to ask for, and why, for a given checklist field.
+
+    Args:
+        field_name: The checklist field name (e.g. `"cap_table"`).
+
+    Returns:
+        The recommended request text, or `None` if the field has none
+        registered (should not happen for any field in the registries
+        above — this is a safe fallback, not an expected path).
+    """
+    return _RECOMMENDED_REQUESTS.get(field_name)
+
 
 def compute_missing_information(
     financial_metrics_found: set[M],
@@ -100,7 +172,13 @@ def compute_missing_information(
     for category, (required_fields, found_fields) in category_registries.items():
         for field_name in required_fields:
             status = FieldStatus.FOUND if field_name in found_fields else FieldStatus.MISSING
-            items.append(ChecklistItemResult(category=category, field_name=field_name, status=status))
+            recommended_request = None if status == FieldStatus.FOUND else get_recommended_request(field_name)
+            items.append(
+                ChecklistItemResult(
+                    category=category, field_name=field_name, status=status,
+                    recommended_request=recommended_request,
+                )
+            )
 
     by_category = [
         MissingInformationByCategory(

@@ -57,6 +57,7 @@ def _fake_business_analysis() -> CitedBusinessAnalysisResult:
         competitors=[],
         main_risks=[],
         growth_opportunities=[],
+        qualitative_facts=[],
     )
 
 
