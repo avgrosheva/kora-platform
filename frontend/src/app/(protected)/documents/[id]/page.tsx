@@ -50,6 +50,7 @@ export default function DocumentDetailPage() {
           <TabsTrigger value="coverage">Coverage</TabsTrigger>
           <TabsTrigger value="score">Score</TabsTrigger>
           <TabsTrigger value="due-diligence">Due Diligence</TabsTrigger>
+          <TabsTrigger value="due-diligence-v2">Due Diligence v2</TabsTrigger>
         </TabsList>
         <TabsContent value="overview" className="mt-4">
           <OverviewTab document={document} />
@@ -72,7 +73,7 @@ export default function DocumentDetailPage() {
         <TabsContent value="coverage" className="mt-4">
           <CoverageTab document={document} />
         </TabsContent>
-        <TabsContent value="due-diligence" className="mt-4">
+        <TabsContent value="due-diligence-v2" className="mt-4">
           <DueDiligenceV2Tab document={document} />
         </TabsContent>
       </Tabs>
