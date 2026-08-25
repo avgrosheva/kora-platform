@@ -104,6 +104,12 @@ export function ScoreTab({ document }: { document: DocumentRead }) {
               <p className="text-sm leading-relaxed text-muted-foreground">{score.reasoning}</p>
             </div>
           )}
+          {score.category_breakdown && (
+            <ScoreBreakdownCard
+              breakdown={score.category_breakdown}
+              methodologyVersion={score.methodology_version}
+            />
+          )}
         </CardContent>
       </Card>
     </div>
