@@ -1,10 +1,8 @@
 import type { Metadata } from "next";
 import { Providers } from "./providers";
 import "./globals.css";
-import { Geist } from "next/font/google";
+import "../styles/kora.css";
 import { cn } from "@/lib/utils";
-
-const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
 export const metadata: Metadata = {
   title: "Kora — Revenue Intelligence Platform",
@@ -13,7 +11,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={cn("dark", "font-sans", geist.variable)}>
+    <html lang="en" className={cn("dark", "font-sans")}>
       <body className="min-h-screen bg-background font-sans antialiased">
         <Providers>{children}</Providers>
       </body>

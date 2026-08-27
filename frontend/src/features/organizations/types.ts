@@ -5,6 +5,11 @@ export interface CreateOrgInput {
   slug?: string;
 }
 
+export interface UpdateOrgInput {
+  name?: string;
+  slug?: string;
+}
+
 export interface AddMemberInput {
   user_id: string;
   role: MembershipRole;

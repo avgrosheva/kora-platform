@@ -46,7 +46,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStoredToken(access_token);
     const currentUser = await authApi.me();
     setUser(currentUser);
-    router.push("/dashboard");
+    router.push("/portfolio");
   };
 
   const logout = () => {

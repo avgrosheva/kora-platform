@@ -64,6 +64,15 @@ class TestNegativeValues:
         facts = [FactPoint(M.REVENUE, 100.0, "2025", P.YEAR, V.ACTUAL)]
         assert check_negative_values_where_not_meaningful(facts) == []
 
+    def test_flags_negative_arr_and_mrr(self):
+        facts = [
+            FactPoint(M.ARR, -1_200_000.0, "2025", P.POINT_IN_TIME, V.ACTUAL),
+            FactPoint(M.MRR, -100_000.0, "2025-06", P.MONTH, V.ACTUAL),
+        ]
+        findings = check_negative_values_where_not_meaningful(facts)
+        assert {f.affected_metrics[0] for f in findings} == {M.ARR.value, M.MRR.value}
+        assert all(f.severity == FindingSeverity.CRITICAL for f in findings)
+
     def test_marketgo_has_no_negative_value_findings(self):
         """MarketGo's -6M EBITDA for 2024 must NOT be flagged — EBITDA can be negative."""
         assert check_negative_values_where_not_meaningful(marketgo_facts()) == []

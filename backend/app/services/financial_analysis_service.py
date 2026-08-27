@@ -53,12 +53,26 @@ _EXTRACTABLE_FIELD_NAMES = (
 # financial_facts, and as which FinancialMetricType (Bug A fix — see
 # _facts_from_flat_metrics). Deliberately NOT every extractable field:
 #
-#   - arr, mrr, growth_rate have no corresponding FinancialMetricType at
-#     all today. Inventing one here, as a side effect of a pipeline-
-#     unification fix, would be a bigger, less-reviewable change than
-#     this fix calls for; if a real need for them as facts emerges, that
-#     is its own change with its own review of what a "derived" vs
-#     "document-stated" ARR/MRR fact should mean.
+#   - arr, mrr now have a corresponding FinancialMetricType (ARR, MRR —
+#     added alongside the arr/mrr cited-pipeline 502 fix, see
+#     ai_service.py's _CITED_FINANCIAL_SYSTEM_PROMPT), but are still
+#     deliberately NOT mirrored here. `_normalize_and_compute` above
+#     cross-derives arr from mrr*12 (or mrr from arr/12) whenever the
+#     model only stated one of the two, and by the time a
+#     FinancialMetricsCreate reaches this module there is no way to
+#     tell a cross-derived value apart from a directly AI-stated one.
+#     Mirroring it here would tag a Kora-computed number as
+#     value_type=ACTUAL ("directly reported"), which is exactly the
+#     class of mislabeling bug the gross_margin unit-convention fix
+#     above was written to catch. If arr/mrr mirroring is wanted later,
+#     `_normalize_and_compute` needs to surface which of the two was
+#     cross-derived so this function can tag it DERIVED, not ACTUAL —
+#     its own change, not a side effect of this fix.
+#   - growth_rate still has no corresponding FinancialMetricType. It is
+#     a calculated rate, not a raw stated figure — the kind of value
+#     this project's convention keeps out of FinancialFact entirely,
+#     as a DerivedMetric instead (see FinancialMetricType's docstring).
+#     Left unmapped, not a gap.
 #   - customers and valuation DO have plausible-looking targets
 #     (REGISTERED_CUSTOMERS, VALUATION_POST_MONEY), but the flat
 #     schema's "customers"/"valuation" fields are looser than what those

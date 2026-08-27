@@ -1,100 +1,151 @@
 "use client";
 
 import { useState } from "react";
-import { useForm, Controller } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { Plus } from "lucide-react";
 import { toast } from "sonner";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { inviteMemberSchema, type InviteMemberFormValues } from "../schemas";
+import { FieldLabel, GhostButton, PrimaryButton } from "@/components/kora/primitives";
+import { inviteMemberSchema } from "../schemas";
 import { useInviteMember } from "../hooks";
+import type { InvitationRead } from "../types";
+import type { MembershipRole } from "@/types/api";
 
-export function InviteMemberDialog({ organizationId }: { organizationId: string }) {
-  const [open, setOpen] = useState(false);
-  const {
-    register,
-    control,
-    handleSubmit,
-    reset,
-    formState: { errors },
-  } = useForm<InviteMemberFormValues>({
-    resolver: zodResolver(inviteMemberSchema),
-    defaultValues: { role: "member" },
-  });
+const ROLES: MembershipRole[] = ["member", "admin", "owner"];
+
+export function InviteMemberDialog({ open, onClose, organizationId }: {
+  open: boolean;
+  onClose: () => void;
+  organizationId: string;
+}) {
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState<MembershipRole>("member");
+  // There's no email-sending backend yet -- the only way to hand the
+  // invite to its recipient is to copy the link ourselves, so the
+  // dialog shows it here instead of closing straight after send.
+  const [createdInvitation, setCreatedInvitation] = useState<InvitationRead | null>(null);
   const inviteMember = useInviteMember(organizationId);
 
-  const onSubmit = (values: InviteMemberFormValues) => {
-    inviteMember.mutate(values, {
-      onSuccess: () => {
-        toast.success(`Invitation sent to ${values.email}.`);
-        reset();
-        setOpen(false);
+  if (!open) return null;
+
+  const handleClose = () => {
+    setEmail("");
+    setRole("member");
+    setCreatedInvitation(null);
+    onClose();
+  };
+
+  const handleSubmit = () => {
+    const result = inviteMemberSchema.safeParse({ email, role });
+    if (!result.success) {
+      toast.error(result.error.issues[0]?.message ?? "Invalid invitation details.");
+      return;
+    }
+    inviteMember.mutate(result.data, {
+      onSuccess: (invitation) => {
+        toast.success(`Invitation created for ${result.data.email}.`);
+        setCreatedInvitation(invitation);
       },
       onError: (error) => toast.error(error.message || "Could not send invitation."),
     });
   };
 
+  const inviteLink = createdInvitation
+    ? `${window.location.origin}/accept-invitation?token=${createdInvitation.token}`
+    : null;
+
+  const handleCopyLink = async () => {
+    if (!inviteLink) return;
+    try {
+      await navigator.clipboard.writeText(inviteLink);
+      toast.success("Link copied.");
+    } catch {
+      toast.error("Could not copy link.");
+    }
+  };
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger>
-        <Button size="sm" variant="outline">
-          <Plus className="mr-2 h-4 w-4" />
-          Invite
-        </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Invite a member</DialogTitle>
-        </DialogHeader>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
-            <Input id="email" type="email" {...register("email")} />
-            {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
-          </div>
-          <div className="space-y-2">
-            <Label>Role</Label>
-            <Controller
-              control={control}
-              name="role"
-              render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="member">Member</SelectItem>
-                    <SelectItem value="admin">Admin</SelectItem>
-                    <SelectItem value="owner">Owner</SelectItem>
-                  </SelectContent>
-                </Select>
-              )}
-            />
-          </div>
-          <DialogFooter>
-            <Button type="submit" disabled={inviteMember.isPending}>
-              {inviteMember.isPending ? "Sending…" : "Send invitation"}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-[#030508]/75 p-6 backdrop-blur-sm"
+      onClick={handleClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="kora-rise w-[min(420px,100%)] overflow-hidden rounded-2xl border border-white/[0.09] bg-gradient-to-b from-ink-850 to-ink-800 shadow-modal"
+      >
+        <header className="flex items-center justify-between border-b border-white/[0.07] bg-gradient-to-r from-accent/10 to-transparent px-5 py-[18px]">
+          <h2 className="text-sm font-semibold">{createdInvitation ? "Invitation link" : "Invite a member"}</h2>
+          <button
+            type="button"
+            onClick={handleClose}
+            aria-label="Close"
+            className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-[7px] border border-white/[0.09] bg-transparent text-[13px] text-fg-muted hover:border-white/20 hover:text-fg"
+          >
+            ×
+          </button>
+        </header>
+
+        {createdInvitation ? (
+          <>
+            <div className="p-5">
+              <p className="m-0 mb-[18px] text-[12.5px] leading-relaxed text-fg-dim [text-wrap:pretty]">
+                There's no email delivery yet — send this link to <span className="text-fg-secondary">{createdInvitation.email}</span> yourself.
+              </p>
+              <FieldLabel>LINK</FieldLabel>
+              <div className="flex items-center gap-2">
+                <input
+                  readOnly
+                  value={inviteLink ?? ""}
+                  onFocus={(e) => e.currentTarget.select()}
+                  className="w-full rounded-[9px] border border-white/[0.09] bg-white/[0.025] px-[13px] py-[11px] font-mono text-[11.5px] text-fg-secondary outline-none"
+                />
+                <GhostButton tone="neutral" className="shrink-0" onClick={handleCopyLink}>COPY</GhostButton>
+              </div>
+            </div>
+            <footer className="flex justify-end px-5 pb-5">
+              <PrimaryButton onClick={handleClose}>DONE</PrimaryButton>
+            </footer>
+          </>
+        ) : (
+          <>
+            <div className="p-5">
+              <FieldLabel>EMAIL</FieldLabel>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoFocus
+                onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
+                className="mb-[18px] w-full rounded-[9px] border border-accent/35 bg-white/[0.03] px-[13px] py-[11px] text-[13px] text-fg-secondary shadow-[0_0_22px_-12px_rgba(77,141,255,0.9)] outline-none"
+              />
+              <FieldLabel>ROLE</FieldLabel>
+              <div className="flex gap-2">
+                {ROLES.map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setRole(r)}
+                    className={
+                      "flex-1 cursor-pointer rounded-[9px] border px-3 py-2 font-mono text-[10.5px] tracking-badge transition " +
+                      (role === r
+                        ? "border-accent/[0.45] bg-accent/[0.16] text-accent-pale"
+                        : "border-white/[0.09] bg-white/[0.02] text-fg-quiet hover:border-white/20")
+                    }
+                  >
+                    {r.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <footer className="flex justify-end gap-[9px] px-5 pb-5">
+              <GhostButton tone="neutral" onClick={handleClose}>CANCEL</GhostButton>
+              <PrimaryButton onClick={handleSubmit}>
+                {inviteMember.isPending ? "SENDING…" : "SEND INVITATION"}
+              </PrimaryButton>
+            </footer>
+          </>
+        )}
+      </div>
+    </div>
   );
 }

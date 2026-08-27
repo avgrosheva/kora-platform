@@ -1,77 +1,88 @@
 "use client";
 
-import Link from "next/link";
-import { FileText } from "lucide-react";
+import { useRef } from "react";
+import { useRouter } from "next/navigation";
 import { format } from "date-fns";
+import { toast } from "sonner";
 import { useActiveOrg } from "@/features/organizations/active-org-context";
-import { useDocuments } from "@/features/documents/hooks";
-import { UploadButton } from "@/features/documents/components/upload-button";
-import { DocumentStatusBadge } from "@/components/shared/document-status-badge";
-import { EmptyState } from "@/components/shared/empty-state";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { useDocuments, useUploadDocument } from "@/features/documents/hooks";
+import { Documents } from "@/components/kora/screens/Documents";
+import { Meter } from "@/components/kora/primitives";
+import { NoActiveOrg } from "@/features/organizations/components/no-active-org";
+import type { DocumentSummary } from "@/components/kora/types";
+import type { DocumentRead } from "@/types/api";
+
+const ACCEPTED_TYPES = ".pdf,.docx,.txt";
+
+function toDocumentSummary(doc: DocumentRead): DocumentSummary {
+  return {
+    id: doc.id,
+    filename: doc.original_filename,
+    status: doc.status,
+    sizeLabel: `${(doc.size_bytes / 1024).toFixed(0)} KB`,
+    uploadedAt: format(new Date(doc.created_at), "MMM d, yyyy HH:mm"),
+    contentType: doc.content_type,
+    pages: doc.page_count,
+    processedAt: doc.processed_at,
+  };
+}
 
 export default function DocumentsPage() {
-  const { activeOrg } = useActiveOrg();
+  const router = useRouter();
+  const { activeOrg, isLoading: orgsLoading } = useActiveOrg();
   const { data, isLoading } = useDocuments(activeOrg?.id ?? null);
+  const { upload, isUploading, progress } = useUploadDocument(activeOrg?.id ?? "");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  if (orgsLoading) {
+    return <div className="relative z-10 p-9 text-sm text-fg-dim">Loading…</div>;
+  }
+
+  if (!activeOrg) {
+    return <NoActiveOrg />;
+  }
+
+  if (isLoading) {
+    return <div className="relative z-10 p-9 text-sm text-fg-dim">Loading…</div>;
+  }
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const documentId = await upload(file);
+      toast.success("Document uploaded.");
+      router.push(`/documents/${documentId}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Upload failed.");
+    } finally {
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Documents</h1>
-          <p className="text-sm text-muted-foreground">{activeOrg?.name}</p>
+    <>
+      <Documents
+        orgName={activeOrg.name}
+        documents={(data?.items ?? []).map(toDocumentSummary)}
+        onOpenDocument={(id) => router.push(`/documents/${id}`)}
+        onUpload={() => inputRef.current?.click()}
+      />
+      <input
+        ref={inputRef}
+        type="file"
+        accept={ACCEPTED_TYPES}
+        className="hidden"
+        onChange={handleFileChange}
+      />
+      {isUploading && (
+        <div className="fixed right-[26px] top-[74px] z-30 flex w-52 flex-col gap-2 rounded-[11px] border border-white/10 bg-ink-850/95 px-4 py-3 shadow-glow-accent">
+          <span className="font-mono text-[10px] tracking-label text-fg-dim">UPLOADING…</span>
+          <Meter percent={progress} tone="accent" thick />
+          <span className="font-mono text-[10px] text-fg-muted">{progress}%</span>
         </div>
-        {activeOrg && <UploadButton organizationId={activeOrg.id} />}
-      </div>
-
-      {isLoading ? (
-        <Skeleton className="h-96" />
-      ) : !data || data.items.length === 0 ? (
-        <EmptyState
-          icon={FileText}
-          title="No documents yet"
-          description="Upload a PDF, DOCX, or TXT file to begin analysis."
-        />
-      ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Filename</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Size</TableHead>
-              <TableHead>Uploaded</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {data.items.map((doc) => (
-              <TableRow key={doc.id} className="cursor-pointer">
-                <TableCell>
-                  <Link href={`/documents/${doc.id}`} className="hover:text-primary">
-                    {doc.original_filename}
-                  </Link>
-                </TableCell>
-                <TableCell>
-                  <DocumentStatusBadge status={doc.status} />
-                </TableCell>
-                <TableCell className="text-xs text-muted-foreground">
-                  {(doc.size_bytes / 1024).toFixed(0)} KB
-                </TableCell>
-                <TableCell className="text-xs text-muted-foreground">
-                  {format(new Date(doc.created_at), "MMM d, yyyy HH:mm")}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
       )}
-    </div>
+    </>
   );
 }

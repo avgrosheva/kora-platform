@@ -78,16 +78,6 @@ export function useAnalysis(documentId: string | undefined) {
   });
 }
 
-export function useAnalyzeDocument(documentId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: () => documentsApi.analyze(documentId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["documents", "detail", documentId, "analysis"] });
-    },
-  });
-}
-
 export function useFinancialMetrics(documentId: string | undefined) {
   return useQuery({
     queryKey: ["documents", "detail", documentId, "financials"],

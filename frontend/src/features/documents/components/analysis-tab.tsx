@@ -5,7 +5,7 @@ import { Sparkles } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shared/empty-state";
-import { useAnalysis, useAnalyzeDocument } from "../hooks";
+import { useAnalysis, useAnalyzeWithCitations } from "../hooks";
 import type { DocumentRead } from "@/types/api";
 import { DecisionSnapshot } from "./decision-snapshot";
 
@@ -24,7 +24,7 @@ function TagList({ items }: { items: string[] | null }) {
 
 export function AnalysisTab({ document }: { document: DocumentRead }) {
   const { data: analysis, isLoading } = useAnalysis(document.id);
-  const analyzeDocument = useAnalyzeDocument(document.id);
+  const analyzeDocument = useAnalyzeWithCitations(document.id);
 
   const canAnalyze = document.status === "completed";
 

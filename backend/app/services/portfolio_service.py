@@ -34,23 +34,33 @@ organization.
 """
 
 import uuid
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import Column, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.coverage_assessment import CoverageAssessment
 from app.models.document import Document
 from app.models.document_analysis import DocumentAnalysis
 from app.models.financial_metrics import FinancialMetrics
 from app.models.investment_score import InvestmentScore
 from app.models.organization import Membership
+from app.models.qualitative_fact import QualitativeFact, QualitativeFactCategory
+from app.models.validation_finding import ValidationFinding
 from app.schemas.portfolio import (
     PortfolioCompany,
     PortfolioDistribution,
+    PortfolioDocumentRow,
     PortfolioOverview,
     PortfolioResponse,
     PortfolioRisk,
     PortfolioSummary,
+)
+from app.services.findings_service import (
+    _QUALITATIVE_SEVERITY_TO_FINDING_SEVERITY,
+    _VALIDATION_SEVERITY_TO_FINDING_SEVERITY,
+    FindingSeverity,
 )
 
 RANKING_LIMIT = 10
@@ -63,6 +73,31 @@ AT_RISK_RUNWAY_THRESHOLD_MONTHS = 6.0
 AT_RISK_SCORE_THRESHOLD = 40.0
 HIGH_CONFIDENCE_THRESHOLD = 0.8
 STALE_THRESHOLD_DAYS = 90
+
+# The three categories whose QualitativeFacts each always produce one
+# AI_INFERRED finding, regardless of severity_hint -- mirrors
+# findings_service.py's _INFERENCE_RULES registration exactly (see
+# _infer_operational_concentration_risk / _infer_ip_ownership_diligence_risk
+# / _infer_team_continuity_risk). Kept as a local constant, not imported,
+# since findings_service.py registers rules as functions, not category
+# values -- this is this module's own translation of "which categories
+# have a registered rule today", re-derived by hand if that list changes.
+_INFERENCE_RULE_CATEGORIES = frozenset({
+    QualitativeFactCategory.OPERATIONAL_DEPENDENCY.value,
+    QualitativeFactCategory.IP_OWNERSHIP.value,
+    QualitativeFactCategory.TEAM_RISK.value,
+})
+
+# Collapses FindingsService's 5-tier severity down to the 3-tier scale
+# (high/medium/low) the portfolio table's open-findings badges use --
+# the same scale the Checks tab's SeverityBadge already renders.
+_FINDING_SEVERITY_TO_BUCKET: dict[FindingSeverity, str] = {
+    FindingSeverity.CRITICAL: "high",
+    FindingSeverity.HIGH: "high",
+    FindingSeverity.MEDIUM: "medium",
+    FindingSeverity.LOW: "low",
+    FindingSeverity.INFORMATIONAL: "low",
+}
 
 _SCORE_BUCKET_LABELS = ("0-20", "21-40", "41-60", "61-80", "81-100")
 _VALUATION_BUCKET_LABELS = (
@@ -229,6 +264,7 @@ async def _fetch_summary_risk_and_buckets(
             func.avg(FinancialMetrics.runway_months).label("average_runway"),
             func.avg(FinancialMetrics.growth_rate).label("average_growth"),
             func.avg(FinancialMetrics.burn_rate).label("average_burn_rate"),
+            func.avg(CoverageAssessment.overall_confidence * 100).label("average_coverage"),
             # --- Risk indicators ---
             func.count()
             .filter(
@@ -283,6 +319,7 @@ async def _fetch_summary_risk_and_buckets(
         .join(DocumentAnalysis, DocumentAnalysis.document_id == Document.id)
         .outerjoin(FinancialMetrics, FinancialMetrics.document_id == Document.id)
         .outerjoin(InvestmentScore, InvestmentScore.document_id == Document.id)
+        .outerjoin(CoverageAssessment, CoverageAssessment.document_id == Document.id)
         .where(Document.organization_id == organization_id)
     )
 
@@ -296,6 +333,7 @@ async def _fetch_summary_risk_and_buckets(
         average_runway=row.average_runway,
         average_growth=row.average_growth,
         average_burn_rate=row.average_burn_rate,
+        average_coverage=row.average_coverage,
     )
     risk = PortfolioRisk(
         companies_at_risk=row.companies_at_risk,
@@ -355,6 +393,145 @@ async def _fetch_industry_distribution(
     )
     rows = (await db.execute(stmt)).all()
     return {row.industry: row.company_count for row in rows}
+
+
+async def _fetch_open_findings_by_document(
+    db: AsyncSession, organization_id: uuid.UUID
+) -> dict[uuid.UUID, dict[str, int]]:
+    """Count open findings per document, by 3-tier severity bucket.
+
+    Mirrors `FindingsService.get_findings`'s three sources exactly, but
+    as aggregate SQL instead of one Python call per document -- this
+    has to scale with an organization's full document list, not just
+    one document at a time. The severity mappings are imported directly
+    from `findings_service.py` rather than duplicated, so the two stay
+    in sync by construction.
+
+    Args:
+        db: The active database session.
+        organization_id: The organization's id.
+
+    Returns:
+        A mapping of `document_id` to `{"high": n, "medium": n, "low": n}`,
+        omitting zero-count severities. Documents with no findings at
+        all are simply absent from the mapping.
+    """
+    counts: dict[uuid.UUID, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+
+    # 1. Deterministic -- ValidationFinding, one row per finding.
+    deterministic_stmt = (
+        select(
+            ValidationFinding.document_id,
+            ValidationFinding.severity,
+            func.count().label("n"),
+        )
+        .join(Document, Document.id == ValidationFinding.document_id)
+        .where(Document.organization_id == organization_id)
+        .group_by(ValidationFinding.document_id, ValidationFinding.severity)
+    )
+    for row in (await db.execute(deterministic_stmt)).all():
+        finding_severity = _VALIDATION_SEVERITY_TO_FINDING_SEVERITY.get(row.severity, FindingSeverity.MEDIUM)
+        bucket = _FINDING_SEVERITY_TO_BUCKET[finding_severity]
+        counts[row.document_id][bucket] += row.n
+
+    # 2. Document-stated -- QualitativeFact rows with a severity_hint set.
+    document_stated_stmt = (
+        select(
+            QualitativeFact.document_id,
+            QualitativeFact.severity_hint,
+            func.count().label("n"),
+        )
+        .join(Document, Document.id == QualitativeFact.document_id)
+        .where(
+            Document.organization_id == organization_id,
+            QualitativeFact.severity_hint.is_not(None),
+        )
+        .group_by(QualitativeFact.document_id, QualitativeFact.severity_hint)
+    )
+    for row in (await db.execute(document_stated_stmt)).all():
+        finding_severity = _QUALITATIVE_SEVERITY_TO_FINDING_SEVERITY.get(row.severity_hint, FindingSeverity.MEDIUM)
+        bucket = _FINDING_SEVERITY_TO_BUCKET[finding_severity]
+        counts[row.document_id][bucket] += row.n
+
+    # 3. AI-inferred -- one finding per QualitativeFact whose category has
+    # a registered inference rule, regardless of severity_hint (defaults
+    # to MEDIUM when unset, exactly like the rule functions themselves).
+    inferred_stmt = (
+        select(
+            QualitativeFact.document_id,
+            QualitativeFact.severity_hint,
+            func.count().label("n"),
+        )
+        .join(Document, Document.id == QualitativeFact.document_id)
+        .where(
+            Document.organization_id == organization_id,
+            QualitativeFact.category.in_(_INFERENCE_RULE_CATEGORIES),
+        )
+        .group_by(QualitativeFact.document_id, QualitativeFact.severity_hint)
+    )
+    for row in (await db.execute(inferred_stmt)).all():
+        finding_severity = _QUALITATIVE_SEVERITY_TO_FINDING_SEVERITY.get(row.severity_hint, FindingSeverity.MEDIUM)
+        bucket = _FINDING_SEVERITY_TO_BUCKET[finding_severity]
+        counts[row.document_id][bucket] += row.n
+
+    return {document_id: dict(buckets) for document_id, buckets in counts.items()}
+
+
+async def _fetch_document_rows(
+    db: AsyncSession, organization_id: uuid.UUID
+) -> list[PortfolioDocumentRow]:
+    """Fetch every company profile in the organization as a table row.
+
+    Unlike `_fetch_ranked_companies`, this is not capped at 10 and is
+    not restricted to companies with a non-null value on some ranking
+    column -- it backs the full "analyzed documents" table, which must
+    show every company profile regardless of how complete its data is.
+
+    Args:
+        db: The active database session.
+        organization_id: The organization's id.
+
+    Returns:
+        Every company profile, newest first, each with its open
+        findings already attached.
+    """
+    stmt = (
+        select(
+            Document.id.label("document_id"),
+            Document.original_filename,
+            Document.status,
+            Document.size_bytes,
+            Document.created_at,
+            DocumentAnalysis.company_name,
+            InvestmentScore.overall_score,
+            CoverageAssessment.overall_confidence,
+        )
+        .select_from(Document)
+        .join(DocumentAnalysis, DocumentAnalysis.document_id == Document.id)
+        .outerjoin(InvestmentScore, InvestmentScore.document_id == Document.id)
+        .outerjoin(CoverageAssessment, CoverageAssessment.document_id == Document.id)
+        .where(Document.organization_id == organization_id)
+        .order_by(Document.created_at.desc())
+    )
+    rows = (await db.execute(stmt)).all()
+    findings_by_document = await _fetch_open_findings_by_document(db, organization_id)
+
+    return [
+        PortfolioDocumentRow(
+            document_id=row.document_id,
+            filename=row.original_filename,
+            company_name=row.company_name,
+            status=row.status,
+            size_bytes=row.size_bytes,
+            created_at=row.created_at,
+            overall_score=row.overall_score,
+            coverage_percent=(
+                round(row.overall_confidence * 100) if row.overall_confidence is not None else None
+            ),
+            open_findings=findings_by_document.get(row.document_id, {}),
+        )
+        for row in rows
+    ]
 
 
 class PortfolioService:
@@ -437,9 +614,12 @@ class PortfolioService:
             country_distribution={},
         )
 
+        documents = await _fetch_document_rows(db, organization_id)
+
         return PortfolioResponse(
             summary=summary,
             overview=overview,
             risk=risk,
             distribution=distribution,
+            documents=documents,
         )

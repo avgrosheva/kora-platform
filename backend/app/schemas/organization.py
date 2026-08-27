@@ -3,7 +3,9 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 from app.models.organization import MembershipRole
 
@@ -110,6 +112,9 @@ class MembershipRead(BaseModel):
         id: The membership's unique identifier.
         organization_id: The organization this membership belongs to.
         user_id: The user this membership belongs to.
+        email: The member's email address. Displayed in place of the
+            raw `user_id` in the UI, which is otherwise a meaningless
+            UUID to a human reader.
         role: The user's role within the organization.
         created_at: Timestamp when the membership was created.
     """
@@ -119,8 +124,32 @@ class MembershipRead(BaseModel):
     id: uuid.UUID
     organization_id: uuid.UUID
     user_id: uuid.UUID
+    email: EmailStr
     role: MembershipRole
     created_at: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def _derive_email_from_user(cls, data: Any) -> Any:
+        """Pull `email` from a `Membership` ORM object's `user` relationship.
+
+        `Membership` has no `email` column of its own -- every caller
+        constructing a `MembershipRead` from an ORM `Membership` must
+        have `.user` already loaded (via a join/eager-load, or by
+        assigning it from an already-fetched `User` in the same
+        session), or this raises `AttributeError` rather than silently
+        issuing a lazy-load query per row.
+        """
+        if isinstance(data, dict):
+            return data
+        return {
+            "id": data.id,
+            "organization_id": data.organization_id,
+            "user_id": data.user_id,
+            "email": data.user.email,
+            "role": data.role,
+            "created_at": data.created_at,
+        }
 
 
 class InvitationCreate(BaseModel):

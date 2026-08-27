@@ -204,20 +204,6 @@ knowledge of the industry.
 - Do not include markdown formatting or commentary. Return the JSON object \
 only."""
 
-# KNOWN GAP (observed live, not yet fixed — next iteration): the model
-# sometimes emits a metric value outside FinancialMetricType's enum (seen
-# in practice: "arr", presumably because ARR is a natural label for the
-# document's own wording but has no FinancialMetricType member — see
-# financial_analysis_service.py's _FLAT_FIELD_TO_METRIC_TYPE docstring,
-# which documents this same gap for the flat pipeline). When that
-# happens, Pydantic validation fails, the one correction retry in
-# _run_structured_completion_with_correction is not always enough to
-# get the model to drop the invalid value, and the whole extraction call
-# fails with a 502 — losing every other, validly-classified fact in that
-# same response, not just the invalid one. A more targeted fix (e.g.
-# validating per-item and dropping only the invalid entries, or adding
-# an explicit ARR/MRR-are-not-valid-metrics rule to this prompt) is
-# deferred rather than done reactively here.
 _CITED_FINANCIAL_SYSTEM_PROMPT = """You are a financial analyst extracting \
 time-series financial facts from company documents, with citations.
 
@@ -226,8 +212,8 @@ Return ONLY a single valid JSON object with this exact shape:
 {
   "facts": [
     {
-      "metric": one of ["revenue", "gross_profit", "gross_margin", "ebitda",
-        "net_income", "operating_expenses", "cash", "debt", "burn_rate",
+      "metric": one of ["revenue", "arr", "mrr", "gross_profit", "gross_margin",
+        "ebitda", "net_income", "operating_expenses", "cash", "debt", "burn_rate",
         "cac", "ltv", "aov", "orders", "registered_customers",
         "monthly_active_users", "churn_rate", "retention_rate",
         "funding_amount", "valuation_pre_money", "valuation_post_money"],
@@ -251,6 +237,14 @@ per year — never collapse multiple periods into a single value.
 - "registered_customers" and "monthly_active_users" (or similar active-user \
 figures) must NEVER be merged into one fact, even if the document discusses \
 them together. Extract them as separate facts.
+- "arr" (Annual Recurring Revenue) and "mrr" (Monthly Recurring Revenue) are \
+run-rate figures, not the same thing as "revenue". Never relabel a stated \
+ARR or MRR figure as "revenue", and never relabel stated revenue as ARR or \
+MRR — extract each exactly as the document names it.
+- ONLY use one of the exact metric names listed above. If a figure does not \
+clearly match one of these metrics (e.g. a growth rate or a customer count \
+that is not "registered_customers" or "monthly_active_users"), omit it \
+rather than inventing a new metric name.
 - Classify "value_type" carefully: a stated projection or expectation for a \
 future period is "forecast", not "actual". A number the source explicitly \
 calls an estimate is "estimate". A stated goal is "target". Only use \

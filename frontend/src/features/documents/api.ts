@@ -65,11 +65,6 @@ export const documentsApi = {
     return data;
   },
 
-  analyze: async (documentId: string): Promise<DocumentAnalysisRead> => {
-    const { data } = await apiClient.post<DocumentAnalysisRead>(`/documents/${documentId}/analyze`);
-    return data;
-  },
-
   getAnalysis: (documentId: string) =>
     fetchOrNull(async () => {
       const { data } = await apiClient.get<DocumentAnalysisRead>(`/documents/${documentId}/analysis`);

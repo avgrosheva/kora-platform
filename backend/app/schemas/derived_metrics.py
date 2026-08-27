@@ -8,6 +8,7 @@ diligence) can distinguish a genuinely calculated figure from one that
 couldn't be computed and why.
 """
 
+import uuid
 from enum import Enum
 
 from pydantic import BaseModel, ConfigDict
@@ -112,8 +113,8 @@ class DerivedMetricRead(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    document_id: str
+    id: uuid.UUID
+    document_id: uuid.UUID
     metric: str
     period: str | None
     value: float | None

@@ -7,6 +7,7 @@ import type {
   ChangeRoleInput,
   CreateOrgInput,
   InviteMemberInput,
+  UpdateOrgInput,
 } from "./types";
 
 export function useOrganizations() {
@@ -30,6 +31,17 @@ export function useCreateOrganization() {
     mutationFn: (input: CreateOrgInput) => organizationsApi.create(input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["organizations"] });
+    },
+  });
+}
+
+export function useUpdateOrganization(organizationId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateOrgInput) => organizationsApi.update(organizationId, input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["organizations"] });
+      queryClient.invalidateQueries({ queryKey: ["organizations", organizationId] });
     },
   });
 }

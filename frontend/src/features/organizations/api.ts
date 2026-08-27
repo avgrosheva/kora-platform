@@ -6,6 +6,7 @@ import type {
   CreateOrgInput,
   InvitationRead,
   InviteMemberInput,
+  UpdateOrgInput,
 } from "./types";
 
 export const organizationsApi = {
@@ -24,6 +25,11 @@ export const organizationsApi = {
       name: input.name,
       slug: input.slug || undefined,
     });
+    return data;
+  },
+
+  update: async (organizationId: string, input: UpdateOrgInput): Promise<OrganizationRead> => {
+    const { data } = await apiClient.patch<OrganizationRead>(`/organizations/${organizationId}`, input);
     return data;
   },
 

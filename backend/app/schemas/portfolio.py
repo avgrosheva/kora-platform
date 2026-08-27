@@ -1,8 +1,11 @@
 """Pydantic schemas for organization-wide portfolio analytics."""
 
 import uuid
+from datetime import datetime
 
 from pydantic import BaseModel
+
+from app.models.document import DocumentStatus
 
 
 class PortfolioSummary(BaseModel):
@@ -27,6 +30,9 @@ class PortfolioSummary(BaseModel):
             with a known growth rate, or `None`.
         average_burn_rate: The average monthly burn rate across
             companies with a known burn rate, or `None`.
+        average_coverage: The average evidence-coverage confidence
+            (0-100) across companies with a computed
+            `CoverageAssessment`, or `None` if none have one yet.
     """
 
     company_count: int
@@ -36,6 +42,7 @@ class PortfolioSummary(BaseModel):
     average_runway: float | None
     average_growth: float | None
     average_burn_rate: float | None
+    average_coverage: float | None
 
 
 class PortfolioCompany(BaseModel):
@@ -160,6 +167,48 @@ class PortfolioDistribution(BaseModel):
     country_distribution: dict[str, int]
 
 
+class PortfolioDocumentRow(BaseModel):
+    """A single company profile as a row in the full analyzed-documents table.
+
+    Unlike `PortfolioCompany` (used only for the top/worst-10 rankings),
+    this includes every company profile in the organization, plus the
+    two fields those rankings don't carry: evidence-coverage percent
+    and a same-tier-as-the-UI (high/medium/low) open-findings count.
+
+    Attributes:
+        document_id: The id of the underlying document.
+        filename: The uploaded file's original filename.
+        company_name: The company's name, or `None` if not identified.
+        status: The document's processing status.
+        size_bytes: The uploaded file's size, in bytes.
+        created_at: When the document was uploaded.
+        overall_score: The company's overall investment score (0-100),
+            or `None` if not yet scored (including
+            `insufficient_evidence`).
+        coverage_percent: The document's evidence-coverage confidence
+            as a 0-100 integer, or `None` if coverage has not been
+            assessed yet.
+        open_findings: Count of open findings by `high`/`medium`/`low`
+            severity (the same 3-tier scale `SeverityBadge` renders),
+            collapsed from `FindingsService`'s 5-tier scale. Only
+            severities with at least one finding are present as keys —
+            a document with no findings is `{}`. Spans all three
+            finding sources (deterministic checks, document-stated
+            risk claims, Kora's inference rules), matching what the
+            document's own Checks tab shows.
+    """
+
+    document_id: uuid.UUID
+    filename: str
+    company_name: str | None
+    status: DocumentStatus
+    size_bytes: int
+    created_at: datetime
+    overall_score: float | None
+    coverage_percent: int | None
+    open_findings: dict[str, int]
+
+
 class PortfolioResponse(BaseModel):
     """Complete, dashboard-ready portfolio response for `GET /portfolio`.
 
@@ -169,9 +218,13 @@ class PortfolioResponse(BaseModel):
         risk: Portfolio-wide risk indicator counts.
         distribution: Company counts across score, valuation, ARR,
             industry, and country buckets.
+        documents: Every company profile in the organization, for the
+            full analyzed-documents table (as opposed to `overview`'s
+            top/worst-10 rankings).
     """
 
     summary: PortfolioSummary
     overview: PortfolioOverview
     risk: PortfolioRisk
     distribution: PortfolioDistribution
+    documents: list[PortfolioDocumentRow]

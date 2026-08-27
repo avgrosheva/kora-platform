@@ -1,11 +1,22 @@
 import type { Config } from "tailwindcss";
 import tailwindcssAnimate from "tailwindcss-animate";
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const koraTokens = require("./tailwind.config.tokens");
 
+// `koraTokens.colors.accent` (the redesign's brand blue) and our existing
+// shadcn `colors.accent` (an hsl(var(--accent)) hover-state color) share a
+// key. A plain object-literal merge below would let the later spread win
+// and silently drop `accent.foreground`, which shadcn's still-unmigrated
+// components (DropdownMenuItem, etc.) read as `text-accent-foreground` —
+// so `accent` is merged one level deeper than the rest: the redesign's
+// DEFAULT/bright/soft/pale/ghost/deep/ink shades apply, `foreground` is
+// kept from the existing theme so nothing unmigrated loses its hover state.
 const config: Config = {
   darkMode: ["class"],
   content: ["./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
+      ...koraTokens,
       colors: {
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
@@ -36,9 +47,10 @@ const config: Config = {
           DEFAULT: "hsl(var(--popover))",
           foreground: "hsl(var(--popover-foreground))",
         },
+        ...koraTokens.colors,
         accent: {
-          DEFAULT: "hsl(var(--accent))",
           foreground: "hsl(var(--accent-foreground))",
+          ...koraTokens.colors.accent,
         },
       },
       borderRadius: {

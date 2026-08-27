@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import contains_eager
 
 from app.models.organization import (
     Membership,
@@ -407,7 +408,10 @@ class OrganizationService:
             actor_id: The id of the requesting user.
 
         Returns:
-            A list of `Membership` instances, ordered by creation time.
+            A list of `Membership` instances, ordered by creation time,
+            each with its `.user` relationship already populated (a
+            single joined query, not one lookup per row) so callers
+            can read `.user.email` without triggering N+1 lazy loads.
 
         Raises:
             OrganizationNotFoundError: If the organization does not
@@ -417,6 +421,8 @@ class OrganizationService:
 
         result = await db.execute(
             select(Membership)
+            .join(Membership.user)
+            .options(contains_eager(Membership.user))
             .where(Membership.organization_id == organization_id)
             .order_by(Membership.created_at)
         )
@@ -472,6 +478,7 @@ class OrganizationService:
         db.add(new_membership)
         await db.commit()
         await db.refresh(new_membership)
+        new_membership.user = target_user
         return new_membership
 
     @staticmethod
@@ -572,7 +579,7 @@ class OrganizationService:
 
         target_membership.role = new_role
         await db.commit()
-        await db.refresh(target_membership)
+        await db.refresh(target_membership, attribute_names=["user"])
         return target_membership
 
     @staticmethod
@@ -712,4 +719,5 @@ class OrganizationService:
 
         await db.commit()
         await db.refresh(membership)
+        membership.user = current_user
         return membership

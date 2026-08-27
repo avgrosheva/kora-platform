@@ -107,7 +107,7 @@ def check_ebitda_inconsistent_with_opex(facts: list[FactPoint]) -> list[Validati
 def check_negative_values_where_not_meaningful(facts: list[FactPoint]) -> list[ValidationFindingResult]:
     """Certain metrics (counts, valuations, revenue) should never be negative."""
     never_negative = {
-        M.REVENUE, M.REGISTERED_CUSTOMERS, M.MONTHLY_ACTIVE_USERS, M.ORDERS,
+        M.REVENUE, M.ARR, M.MRR, M.REGISTERED_CUSTOMERS, M.MONTHLY_ACTIVE_USERS, M.ORDERS,
         M.CASH, M.VALUATION_PRE_MONEY, M.VALUATION_POST_MONEY, M.FUNDING_AMOUNT,
     }
     findings = []

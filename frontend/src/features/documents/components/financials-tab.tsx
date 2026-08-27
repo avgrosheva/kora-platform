@@ -1,12 +1,12 @@
 "use client";
 
 import { toast } from "sonner";
-import { Calculator } from "lucide-react";
+import { Calculator, Quote } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shared/empty-state";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/utils";
-import { useAnalysis, useFinancialMetrics, useRunFinancialAnalysis } from "../hooks";
+import { useAnalysis, useExtractFinancialFacts, useFinancialMetrics, useRunFinancialAnalysis } from "../hooks";
 import type { DocumentRead } from "@/types/api";
 
 function Metric({ label, value }: { label: string; value: string }) {
@@ -22,8 +22,10 @@ export function FinancialsTab({ document }: { document: DocumentRead }) {
   const { data: analysis } = useAnalysis(document.id);
   const { data: metrics, isLoading } = useFinancialMetrics(document.id);
   const runFinancialAnalysis = useRunFinancialAnalysis(document.id);
+  const extractFacts = useExtractFinancialFacts(document.id);
 
   const canRun = !!analysis;
+  const canExtractFacts = document.status === "completed";
 
   const handleRun = () => {
     runFinancialAnalysis.mutate(undefined, {
@@ -31,6 +33,32 @@ export function FinancialsTab({ document }: { document: DocumentRead }) {
       onError: (error) => toast.error(error.message),
     });
   };
+
+  const handleExtractFacts = () => {
+    extractFacts.mutate(undefined, {
+      onSuccess: (result) =>
+        toast.success(
+          `${result.facts_extracted} cited financial fact${result.facts_extracted === 1 ? "" : "s"} extracted.`
+        ),
+      onError: (error) => toast.error(error.message),
+    });
+  };
+
+  const extractFactsButton = (variant: "primary" | "secondary") => (
+    <button
+      type="button"
+      onClick={handleExtractFacts}
+      disabled={extractFacts.isPending}
+      className={
+        variant === "primary"
+          ? "flex h-9 items-center gap-2 rounded-md border border-input px-4 text-sm font-medium hover:bg-accent disabled:opacity-50"
+          : "flex h-8 items-center gap-2 rounded-md border border-input px-3 text-xs font-medium hover:bg-accent disabled:opacity-50"
+      }
+    >
+      <Quote className={variant === "primary" ? "h-4 w-4" : "h-3.5 w-3.5"} />
+      {extractFacts.isPending ? "Extracting…" : "Extract Time-Series Facts (with citations)"}
+    </button>
+  );
 
   if (isLoading) return <Skeleton className="h-64" />;
 
@@ -46,8 +74,8 @@ export function FinancialsTab({ document }: { document: DocumentRead }) {
               : "Run business analysis first, from the Analysis tab."
           }
         />
-        {canRun && (
-          <div className="flex justify-center">
+        <div className="flex flex-col items-center gap-2">
+          {canRun && (
             <button
               type="button"
               onClick={handleRun}
@@ -57,8 +85,15 @@ export function FinancialsTab({ document }: { document: DocumentRead }) {
               <Calculator className="h-4 w-4" />
               {runFinancialAnalysis.isPending ? "Extracting…" : "Extract Financial Metrics"}
             </button>
-          </div>
-        )}
+          )}
+          {canExtractFacts && extractFactsButton("primary")}
+          {(canRun || canExtractFacts) && (
+            <p className="max-w-sm text-center text-xs text-muted-foreground">
+              &ldquo;Extract Time-Series Facts&rdquo; is what powers Coverage, Findings, Score, and the
+              Decision Snapshot — run it here even if you also extract the summary metrics above.
+            </p>
+          )}
+        </div>
       </div>
     );
   }
@@ -71,14 +106,17 @@ export function FinancialsTab({ document }: { document: DocumentRead }) {
         <p className="text-xs text-muted-foreground">
           Confidence: {metrics.confidence_score !== null ? `${(metrics.confidence_score * 100).toFixed(0)}%` : "—"}
         </p>
-        <button
-          type="button"
-          onClick={handleRun}
-          disabled={runFinancialAnalysis.isPending}
-          className="flex h-8 items-center gap-2 rounded-md border border-input px-3 text-xs font-medium hover:bg-accent disabled:opacity-50"
-        >
-          {runFinancialAnalysis.isPending ? "Re-extracting…" : "Re-run Extraction"}
-        </button>
+        <div className="flex items-center gap-2">
+          {canExtractFacts && extractFactsButton("secondary")}
+          <button
+            type="button"
+            onClick={handleRun}
+            disabled={runFinancialAnalysis.isPending}
+            className="flex h-8 items-center gap-2 rounded-md border border-input px-3 text-xs font-medium hover:bg-accent disabled:opacity-50"
+          >
+            {runFinancialAnalysis.isPending ? "Re-extracting…" : "Re-run Extraction"}
+          </button>
+        </div>
       </div>
 
       <Card className="border-border/50">

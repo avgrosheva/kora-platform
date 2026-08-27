@@ -1,0 +1,90 @@
+/* Kora — fonts, keyframes, animation utilities, base. Import once at app root. */
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/* ---------- keyframes ---------- */
+
+/* light trails travelling along an SVG path */
+@keyframes kora-flow {
+  0%   { stroke-dashoffset: 1200; opacity: 0; }
+  12%  { opacity: 0.85; }
+  88%  { opacity: 0.85; }
+  100% { stroke-dashoffset: -400; opacity: 0; }
+}
+
+/* section / card entrance */
+@keyframes kora-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* toast entrance */
+@keyframes kora-slide-in {
+  from { opacity: 0; transform: translateX(16px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* meters and bars filling from their origin */
+@keyframes kora-grow-x { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes kora-grow-y { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+
+/* "new data loading" sweep over a hero panel */
+@keyframes kora-pulse {
+  0%   { opacity: 0; }
+  20%  { opacity: 0.9; }
+  100% { opacity: 0; transform: translateY(100%); }
+}
+
+/* resting glow on the collapsed chat button */
+@keyframes kora-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(61,139,255,0.30), 0 10px 40px -12px rgba(61,139,255,0.55); }
+  50%      { box-shadow: 0 0 0 12px rgba(61,139,255,0.00), 0 10px 46px -10px rgba(61,139,255,0.75); }
+}
+
+/* status dot / typing indicator */
+@keyframes kora-blink { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+
+/* ---------- animation utilities ---------- */
+
+.kora-rise      { animation: kora-rise 0.5s ease both; }
+.kora-slide-in  { animation: kora-slide-in 0.3s ease both; }
+.kora-grow-x    { transform-origin: left;   animation: kora-grow-x 0.9s cubic-bezier(0.2,0.8,0.2,1) both; }
+.kora-grow-y    { transform-origin: bottom; animation: kora-grow-y 0.8s cubic-bezier(0.2,0.8,0.2,1) both; }
+.kora-pulse     { animation: kora-pulse 1.6s ease-out infinite; }
+.kora-breathe   { animation: kora-breathe 4.5s ease-in-out infinite; }
+.kora-blink     { animation: kora-blink 2.6s ease-in-out infinite; }
+.kora-blink-fast{ animation: kora-blink 1.2s ease-in-out infinite; }
+.kora-flow      { animation: kora-flow 14s linear infinite; }
+
+/* stagger helpers — put on siblings that should cascade in */
+.kora-d1 { animation-delay: 0.05s; }
+.kora-d2 { animation-delay: 0.10s; }
+.kora-d3 { animation-delay: 0.15s; }
+.kora-d4 { animation-delay: 0.20s; }
+.kora-d5 { animation-delay: 0.28s; }
+.kora-d6 { animation-delay: 0.36s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .kora-rise, .kora-slide-in, .kora-grow-x, .kora-grow-y,
+  .kora-pulse, .kora-breathe, .kora-blink, .kora-blink-fast, .kora-flow {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+/* ---------- base ---------- */
+
+html, body {
+  margin: 0;
+  background: #05070A;
+  color: #E7EBF1;
+  font-family: 'Geist', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: #4D8DFF; text-decoration: none; }
+a:hover { color: #7FADFF; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.09); border-radius: 8px; }
+::-webkit-scrollbar-track { background: transparent; }

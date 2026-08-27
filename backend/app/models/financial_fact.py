@@ -48,9 +48,25 @@ class FinancialMetricType(str, enum.Enum):
     as facts — they are `DerivedMetric` rows instead, keeping the
     "facts vs. calculated vs. inferred" distinction structural rather
     than a matter of convention.
+
+    ARR and MRR convention: unlike `REVENUE` (a stated total realized
+    *for* the named period), `ARR`/`MRR` are run-rate snapshots — "if
+    the current recurring-revenue rate held for a year/month" — as of
+    a point in time, not a claim about what was actually earned over
+    the whole named period. A document's "2025 ARR: $12M" is not
+    interchangeable with "2025 revenue: $12M"; a mid-year ARR figure
+    can be well above or below the revenue actually realized so far
+    that year. Consequently `ARR`/`MRR` facts are extracted and stored
+    as-is (never converted to/from each other or folded into
+    `REVENUE`), typically with `period_type=POINT_IN_TIME` when the
+    source gives an as-of date, or `MONTH`/`YEAR` when the source only
+    labels it by month/year — either way `period` names when the
+    run-rate was measured, not a span it was earned over.
     """
 
     REVENUE = "revenue"
+    ARR = "arr"
+    MRR = "mrr"
     GROSS_PROFIT = "gross_profit"
     GROSS_MARGIN = "gross_margin"
     EBITDA = "ebitda"

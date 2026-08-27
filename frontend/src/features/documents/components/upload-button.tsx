@@ -5,11 +5,22 @@ import { Upload } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { Progress } from "@/components/ui/progress";
+import { PrimaryButton, Meter } from "@/components/kora/primitives";
 import { useUploadDocument } from "../hooks";
 
 const ACCEPTED_TYPES = ".pdf,.docx,.txt";
 
-export function UploadButton({ organizationId }: { organizationId: string }) {
+/**
+ * `variant="kora"` renders the trigger with the new design system's
+ * `PrimaryButton` (for screens already on the redesign); the default
+ * `"shadcn"` keeps the original button for screens not yet migrated.
+ * Upload logic (file picking, progress, redirect) is identical either
+ * way -- only the trigger's visual chrome differs.
+ */
+export function UploadButton({ organizationId, variant = "shadcn" }: {
+  organizationId: string;
+  variant?: "shadcn" | "kora";
+}) {
   const inputRef = useRef<HTMLInputElement>(null);
   const { upload, isUploading, progress } = useUploadDocument(organizationId);
   const router = useRouter();
@@ -29,6 +40,33 @@ export function UploadButton({ organizationId }: { organizationId: string }) {
     }
   };
 
+  const input = (
+    <input
+      ref={inputRef}
+      type="file"
+      accept={ACCEPTED_TYPES}
+      className="hidden"
+      onChange={handleFileChange}
+    />
+  );
+
+  if (variant === "kora") {
+    return (
+      <div className="flex items-center gap-3">
+        {isUploading && (
+          <div className="flex w-40 flex-col gap-1">
+            <Meter percent={progress} tone="accent" />
+            <span className="font-mono text-[10px] text-fg-dim">{progress}%</span>
+          </div>
+        )}
+        <PrimaryButton onClick={() => inputRef.current?.click()} className={isUploading ? "pointer-events-none opacity-50" : ""}>
+          {isUploading ? "UPLOADING…" : "↑ UPLOAD DOCUMENT"}
+        </PrimaryButton>
+        {input}
+      </div>
+    );
+  }
+
   return (
     <div className="flex items-center gap-3">
       {isUploading && (
@@ -46,13 +84,7 @@ export function UploadButton({ organizationId }: { organizationId: string }) {
         <Upload className="h-4 w-4" />
         {isUploading ? "Uploading…" : "Upload Document"}
       </button>
-      <input
-        ref={inputRef}
-        type="file"
-        accept={ACCEPTED_TYPES}
-        className="hidden"
-        onChange={handleFileChange}
-      />
+      {input}
     </div>
   );
 }

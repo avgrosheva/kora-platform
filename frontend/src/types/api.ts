@@ -31,6 +31,7 @@ export interface MembershipRead {
   id: string;
   organization_id: string;
   user_id: string;
+  email: string;
   role: MembershipRole;
   created_at: string;
 }
@@ -161,6 +162,19 @@ export interface PortfolioCompany {
   currency: string | null;
 }
 
+export interface PortfolioDocumentRow {
+  document_id: string;
+  filename: string;
+  company_name: string | null;
+  status: DocumentStatus;
+  size_bytes: number;
+  created_at: string;
+  overall_score: number | null;
+  coverage_percent: number | null;
+  /** Only nonzero severities are present as keys; e.g. {} means no open findings. */
+  open_findings: Partial<Record<"high" | "medium" | "low", number>>;
+}
+
 export interface PortfolioResponse {
   summary: {
     company_count: number;
@@ -170,6 +184,7 @@ export interface PortfolioResponse {
     average_runway: number | null;
     average_growth: number | null;
     average_burn_rate: number | null;
+    average_coverage: number | null;
   };
   overview: {
     top_10_companies: PortfolioCompany[];
@@ -194,6 +209,7 @@ export interface PortfolioResponse {
     industry_distribution: Record<string, number>;
     country_distribution: Record<string, number>;
   };
+  documents: PortfolioDocumentRow[];
 }
 
 export interface ChatSource {
@@ -228,7 +244,7 @@ export interface ApiErrorBody {
 }
 
 export type FinancialMetricType =
-  | "revenue" | "gross_profit" | "gross_margin" | "ebitda" | "net_income"
+  | "revenue" | "arr" | "mrr" | "gross_profit" | "gross_margin" | "ebitda" | "net_income"
   | "operating_expenses" | "cash" | "debt" | "burn_rate" | "cac" | "ltv"
   | "aov" | "orders" | "registered_customers" | "monthly_active_users"
   | "churn_rate" | "retention_rate" | "funding_amount"
