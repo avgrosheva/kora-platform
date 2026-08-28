@@ -9,6 +9,7 @@ import { env } from "./env";
 import type { ApiErrorBody } from "@/types/api";
 
 const TOKEN_STORAGE_KEY = "kora_access_token";
+const PUBLIC_PATHS = ["/login", "/register"];
 
 export class ApiError extends Error {
   readonly status: number;
@@ -70,7 +71,7 @@ function createClient(): AxiosInstance {
 
       if (status === 401 && typeof window !== "undefined") {
         setStoredToken(null);
-        if (!window.location.pathname.startsWith("/login")) {
+        if (!PUBLIC_PATHS.some((path) => window.location.pathname.startsWith(path))) {
           window.location.href = "/login";
         }
       }

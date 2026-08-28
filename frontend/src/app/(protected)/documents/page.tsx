@@ -3,6 +3,7 @@
 import { useRef } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
+import { formatFileSize } from "@/lib/utils";
 import { toast } from "sonner";
 import { useActiveOrg } from "@/features/organizations/active-org-context";
 import { useDocuments, useUploadDocument } from "@/features/documents/hooks";
@@ -19,7 +20,7 @@ function toDocumentSummary(doc: DocumentRead): DocumentSummary {
     id: doc.id,
     filename: doc.original_filename,
     status: doc.status,
-    sizeLabel: `${(doc.size_bytes / 1024).toFixed(0)} KB`,
+    sizeLabel: formatFileSize(doc.size_bytes),
     uploadedAt: format(new Date(doc.created_at), "MMM d, yyyy HH:mm"),
     contentType: doc.content_type,
     pages: doc.page_count,

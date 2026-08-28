@@ -175,6 +175,12 @@ export function useExtractFinancialFacts(documentId: string) {
       queryClient.invalidateQueries({ queryKey: ["documents", "detail", documentId, "checks"] });
       queryClient.invalidateQueries({ queryKey: ["documents", "detail", documentId, "coverage"] });
       queryClient.invalidateQueries({ queryKey: ["documents", "detail", documentId, "missing-information"] });
+      // Deterministic + document-stated + AI-inferred findings are all
+      // derived from the extracted facts this call produces (see
+      // findings_service.py). Left out of the migration to the unified
+      // findings model -- without this, the Checks tab and Analysis
+      // tab's "Top Concerns" stay stale until a hard reload.
+      queryClient.invalidateQueries({ queryKey: ["documents", "detail", documentId, "findings"] });
     },
   });
 }

@@ -109,7 +109,7 @@ export function ScoreTab({ score, coverage, canScore, isCalculating = false, onC
             <h2 className="text-[13.5px] font-semibold">Score breakdown</h2>
             {score.methodology_version && (
               <span className="font-mono text-[9.5px] tracking-label text-fg-faint">
-                V{score.methodology_version.replace("kora_score_", "").toUpperCase()}
+                {score.methodology_version.replace("kora_score_", "").toUpperCase()}
               </span>
             )}
           </div>

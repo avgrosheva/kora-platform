@@ -507,7 +507,12 @@ async def _fetch_document_rows(
             CoverageAssessment.overall_confidence,
         )
         .select_from(Document)
-        .join(DocumentAnalysis, DocumentAnalysis.document_id == Document.id)
+        # LEFT join, not inner: this table must show every document
+        # regardless of pipeline stage (see docstring above), but an
+        # inner join here silently dropped any document that hadn't
+        # had business analysis run yet -- even one with real financial
+        # facts, coverage, or a score already computed.
+        .outerjoin(DocumentAnalysis, DocumentAnalysis.document_id == Document.id)
         .outerjoin(InvestmentScore, InvestmentScore.document_id == Document.id)
         .outerjoin(CoverageAssessment, CoverageAssessment.document_id == Document.id)
         .where(Document.organization_id == organization_id)

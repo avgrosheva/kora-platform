@@ -56,6 +56,7 @@ export default function MembersPage() {
 
   const myRole = members?.find((m) => m.user_id === user?.id)?.role;
   const actionMember = members?.find((m) => m.user_id === actionUserId) ?? null;
+  const ownerCount = members?.filter((m) => m.role === "owner").length ?? 0;
 
   return (
     <>
@@ -73,6 +74,7 @@ export default function MembersPage() {
         organizationId={activeOrg.id}
         myRole={myRole}
         currentUserId={user?.id}
+        ownerCount={ownerCount}
         onClose={() => setActionUserId(null)}
       />
     </>

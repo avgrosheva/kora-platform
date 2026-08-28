@@ -120,12 +120,12 @@ export function GapRow({ label }: { label: string }) {
 
 /* ---------------- buttons ---------------- */
 
-export function PrimaryButton({ children, onClick, className = '' }: {
-  children: ReactNode; onClick?: () => void; className?: string;
+export function PrimaryButton({ children, onClick, className = '', type = 'button' }: {
+  children: ReactNode; onClick?: () => void; className?: string; type?: 'button' | 'submit';
 }) {
   return (
     <button
-      type="button"
+      type={type}
       onClick={onClick}
       className={'cursor-pointer rounded-[9px] border-none bg-accent-btn px-[17px] py-[11px] font-mono text-[11px] tracking-badge text-accent-ink shadow-glow-accent transition hover:brightness-110 ' + className}
     >

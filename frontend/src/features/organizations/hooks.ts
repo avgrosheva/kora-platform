@@ -10,10 +10,11 @@ import type {
   UpdateOrgInput,
 } from "./types";
 
-export function useOrganizations() {
+export function useOrganizations(enabled = true) {
   return useQuery({
     queryKey: ["organizations"],
     queryFn: organizationsApi.list,
+    enabled,
   });
 }
 

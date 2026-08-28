@@ -11,6 +11,12 @@ labels like "Analysis coverage" or "Data confidence", never
 "investment probability" or similar.
 """
 
+import uuid
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.coverage_assessment import CoverageAssessment
 from app.models.financial_fact import FinancialMetricType as M
 from app.schemas.coverage import CategoryCoverage, CoverageAssessmentResult
 
@@ -30,7 +36,17 @@ REQUIRED_COMPANY_FIELDS = [
     "key_products", "revenue_streams", "customers", "competitors",
 ]
 REQUIRED_TEAM_FIELDS = ["founders", "key_executives", "headcount", "hiring_plan", "key_person_dependency"]
-REQUIRED_MARKET_FIELDS = ["market_size", "competitors", "competitive_advantages", "market_risks"]
+# "competitors" deliberately excluded here even though it's a natural
+# market-analysis question too: evidence_service.py's
+# _ANALYSIS_FIELD_CATEGORY breaks its company/market tie in favor of
+# "company" (it's a real DocumentAnalysis column that structurally
+# lives there), so an EvidenceFact for it is never produced under
+# "market". Listing it here as well made this category's checklist
+# permanently unsatisfiable for that one field -- Coverage would show
+# it "missing" under Market even on a document where Analysis's
+# Extracted Facts panel displays a populated competitors list. It's
+# still required (and satisfiable) under REQUIRED_COMPANY_FIELDS.
+REQUIRED_MARKET_FIELDS = ["market_size", "competitive_advantages", "market_risks"]
 
 CRITICAL_FIELDS = ["cap_table", "debt", "cohort_retention"]
 
@@ -109,3 +125,53 @@ def compute_coverage(
         ambiguities_count=ambiguities_count,
         critical_missing_fields=critical_missing,
     )
+
+
+class CoverageAssessmentService:
+    """Persists `compute_coverage` results.
+
+    `compute_coverage` above only computes and returns a result — it
+    never writes it anywhere. Nothing else in the codebase constructs a
+    `CoverageAssessment` row either, so the `coverage_assessments` table
+    was always empty in practice, even though the model's own docstring
+    describes "one row per document; re-running coverage assessment
+    updates the existing row" as the intended behavior, and
+    `CoverageAssessmentResult`'s docstring already calls itself "the
+    pre-persistence result." Portfolio's per-document table reads
+    coverage through this table (`_fetch_document_rows` in
+    `portfolio_service.py`), so every document showed a `None` coverage
+    there regardless of what `GET /documents/{id}/coverage` — which
+    computes fresh on every call — would report for that same document.
+    """
+
+    @staticmethod
+    async def persist(
+        db: AsyncSession, document_id: uuid.UUID, result: CoverageAssessmentResult
+    ) -> CoverageAssessment:
+        """Upsert a document's coverage assessment.
+
+        Args:
+            db: The active database session.
+            document_id: The document this assessment covers.
+            result: The freshly computed coverage result.
+
+        Returns:
+            The persisted `CoverageAssessment` row.
+        """
+        existing = (
+            await db.execute(select(CoverageAssessment).where(CoverageAssessment.document_id == document_id))
+        ).scalar_one_or_none()
+
+        if existing is None:
+            existing = CoverageAssessment(document_id=document_id)
+            db.add(existing)
+
+        existing.overall_confidence = result.overall_confidence
+        existing.coverage = {category: cov.model_dump() for category, cov in result.coverage.items()}
+        existing.source_coverage = result.source_coverage
+        existing.ambiguities_count = result.ambiguities_count
+        existing.critical_missing_fields = result.critical_missing_fields
+
+        await db.commit()
+        await db.refresh(existing)
+        return existing

@@ -3,9 +3,10 @@
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { format } from "date-fns";
+import { formatFileSize } from "@/lib/utils";
 import { toast } from "sonner";
 import {
-  useDocument, useProcessDocument, useAnalysis, useAnalyzeWithCitations,
+  useDocument, useProcessDocument, useIndexDocument, useAnalysis, useAnalyzeWithCitations,
   useScore, useCalculateScore, useDocumentFindings, useDocumentCoverage, useMissingInformation,
   useFinancialMetrics, useRunFinancialAnalysis, useExtractFinancialFacts,
   useGenerateDueDiligence, useGenerateDueDiligenceV2,
@@ -30,7 +31,7 @@ function toDocumentSummary(doc: DocumentRead): DocumentSummary {
     id: doc.id,
     filename: doc.original_filename,
     status: doc.status,
-    sizeLabel: `${(doc.size_bytes / 1024).toFixed(0)} KB`,
+    sizeLabel: formatFileSize(doc.size_bytes),
     uploadedAt: format(new Date(doc.created_at), "MMM d, yyyy HH:mm"),
     contentType: doc.content_type,
     pages: doc.page_count,
@@ -45,6 +46,7 @@ export default function DocumentDetailPage() {
   const [activeTab, setActiveTab] = useState<DetailTabId>("overview");
 
   const processDocument = useProcessDocument(params.id);
+  const indexDocument = useIndexDocument(params.id);
 
   const { data: analysis } = useAnalysis(params.id);
   const analyzeDocument = useAnalyzeWithCitations(params.id);
@@ -87,6 +89,14 @@ export default function DocumentDetailPage() {
           toast.success("Document processed.");
         }
       },
+      onError: (error) => toast.error(error.message),
+    });
+  };
+
+  const handleIndex = () => {
+    indexDocument.mutate(undefined, {
+      onSuccess: (result) =>
+        toast.success(`${result.chunks_indexed} chunk${result.chunks_indexed === 1 ? "" : "s"} indexed for chat.`),
       onError: (error) => toast.error(error.message),
     });
   };
@@ -134,12 +144,32 @@ export default function DocumentDetailPage() {
     });
   };
 
+  // Exports render the report already generated and on screen -- each
+  // needs that exact report object, so v1 and v2 each get their own
+  // handler rather than sharing one keyed only by file format.
   const handleExport = async (format: "md" | "pdf") => {
+    const report = generateDueDiligence.data;
+    if (!report) return;
     try {
       if (format === "md") {
-        await documentsApi.exportMarkdown(document.id, `due-diligence-${document.original_filename}.md`);
+        await documentsApi.exportMarkdown(document.id, report, `due-diligence-${document.original_filename}.md`);
       } else {
-        await documentsApi.exportPdf(document.id, `due-diligence-${document.original_filename}.pdf`);
+        await documentsApi.exportPdf(document.id, report, `due-diligence-${document.original_filename}.pdf`);
+      }
+      toast.success(`Exported as ${format.toUpperCase()}.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Export failed.");
+    }
+  };
+
+  const handleExportV2 = async (format: "md" | "pdf") => {
+    const report = generateDueDiligenceV2.data;
+    if (!report) return;
+    try {
+      if (format === "md") {
+        await documentsApi.exportMarkdownV2(document.id, report, `due-diligence-${document.original_filename}.md`);
+      } else {
+        await documentsApi.exportPdfV2(document.id, report, `due-diligence-${document.original_filename}.pdf`);
       }
       toast.success(`Exported as ${format.toUpperCase()}.`);
     } catch (error) {
@@ -162,6 +192,8 @@ export default function DocumentDetailPage() {
           processingError={document.status === "failed" ? document.processing_error : null}
           onProcess={handleProcess}
           isProcessing={processDocument.isPending}
+          onIndex={handleIndex}
+          isIndexing={indexDocument.isPending}
         />
       )}
 
@@ -235,8 +267,8 @@ export default function DocumentDetailPage() {
           report={generateDueDiligenceV2.data ?? null}
           isGenerating={generateDueDiligenceV2.isPending}
           onGenerate={handleGenerateDueDiligenceV2}
-          onExportMarkdown={() => handleExport("md")}
-          onExportPdf={() => handleExport("pdf")}
+          onExportMarkdown={() => handleExportV2("md")}
+          onExportPdf={() => handleExportV2("pdf")}
         />
       )}
     </DocumentDetail>

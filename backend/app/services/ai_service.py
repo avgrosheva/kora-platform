@@ -255,6 +255,13 @@ metrics.
 - "quote" must be exact, verbatim text — never paraphrased.
 - Never invent a figure that is not explicitly stated. If you are unsure \
 whether a number represents this metric, omit it rather than guess.
+- "gross_margin", "churn_rate", and "retention_rate" are FRACTIONS, not \
+plain percentages: a stated "42.5%" gross margin must be extracted as \
+0.425, never as 42.5 or 42.5. A stated "3% monthly churn" must be extracted \
+as 0.03, never as 3. This is the convention every downstream consumer of \
+these three metrics assumes (plausible-range validation, gross-profit \
+estimation) — extracting a plain percentage instead silently produces a \
+value 100x too large everywhere it's used.
 - Do not include markdown formatting or commentary. Return the JSON object \
 only."""
 

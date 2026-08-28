@@ -77,6 +77,20 @@ export function ChatWidget() {
     const userMessage: ChatMessage = { id: crypto.randomUUID(), role: "user", content: question };
     setMessages((prev) => [...prev, userMessage]);
 
+    // On failure, the user's own question stays in the transcript with
+    // a visible error reply rather than being silently removed --
+    // vanishing it (the old behavior) is indistinguishable from "the
+    // message was never sent," which is exactly what made a slow-but-
+    // legitimate analytical answer look like a hang instead of a
+    // request that was still, correctly, in flight.
+    const handleError = (error: Error) => {
+      toast.error(error.message || "Chat request failed.");
+      setMessages((prev) => [
+        ...prev,
+        { id: crypto.randomUUID(), role: "assistant", content: error.message || "Sorry, that request failed. Please try again." },
+      ]);
+    };
+
     if (useTools) {
       askChatV2.mutate(
         { organizationId: activeOrg.id, question },
@@ -90,10 +104,7 @@ export function ChatWidget() {
               },
             ]);
           },
-          onError: (error) => {
-            toast.error(error.message || "Chat request failed.");
-            setMessages((prev) => prev.slice(0, -1));
-          },
+          onError: handleError,
         }
       );
       return;
@@ -108,10 +119,7 @@ export function ChatWidget() {
             { id: crypto.randomUUID(), role: "assistant", content: response.answer, sources: response.sources, modelUsed: response.model_used },
           ]);
         },
-        onError: (error) => {
-          toast.error(error.message || "Chat request failed.");
-          setMessages((prev) => prev.slice(0, -1));
-        },
+        onError: handleError,
       }
     );
   };
@@ -131,6 +139,7 @@ export function ChatWidget() {
       mode={useTools ? "ANALYTICAL" : "STANDARD"}
       onModeToggle={() => setUseTools((v) => !v)}
       isThinking={isPending}
+      thinkingLabel={useTools && askChatV2.isPending ? "ANALYZING — CAN TAKE A MINUTE OR TWO…" : undefined}
       placeholder={`Ask about ${activeOrg.name}'s indexed documents…`}
       onSend={handleSend}
     />

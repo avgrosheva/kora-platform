@@ -14,13 +14,18 @@ const ASSIGNABLE_ROLES: MembershipRole[] = ["owner", "admin", "member"];
  * to match `CreateOrgModal`'s chrome. Gating mirrors the backend
  * exactly (organization_service.py): change_role is owner-only;
  * remove_member allows owner/admin for anyone, and anyone may remove
- * themselves (leave).
+ * themselves (leave). The organization's last remaining owner can be
+ * neither removed nor demoted (`LastOwnerError`) -- those options are
+ * hidden for that member's row rather than left visible to fail.
  */
-export function MemberActionsModal({ member, organizationId, myRole, currentUserId, onClose }: {
+export function MemberActionsModal({ member, organizationId, myRole, currentUserId, ownerCount, onClose }: {
   member: MembershipRead | null;
   organizationId: string;
   myRole?: MembershipRole;
   currentUserId?: string;
+  /** Total owners in the organization, to detect when `member` is the
+   * sole remaining one. */
+  ownerCount: number;
   onClose: () => void;
 }) {
   const changeRole = useChangeRole(organizationId);
@@ -29,8 +34,9 @@ export function MemberActionsModal({ member, organizationId, myRole, currentUser
   if (!member) return null;
 
   const isSelf = member.user_id === currentUserId;
-  const canChangeRoles = myRole === "owner";
-  const canRemove = myRole === "owner" || myRole === "admin" || isSelf;
+  const isSoleOwner = member.role === "owner" && ownerCount <= 1;
+  const canChangeRoles = myRole === "owner" && !isSoleOwner;
+  const canRemove = (myRole === "owner" || myRole === "admin" || isSelf) && !isSoleOwner;
 
   const handleChangeRole = (role: MembershipRole) => {
     changeRole.mutate(
@@ -83,7 +89,11 @@ export function MemberActionsModal({ member, organizationId, myRole, currentUser
 
         <div className="flex flex-col gap-2 p-3">
           {!canChangeRoles && !canRemove && (
-            <p className="px-2 py-3 text-center text-[12.5px] text-fg-dim">No actions available.</p>
+            <p className="px-2 py-3 text-center text-[12.5px] text-fg-dim [text-wrap:pretty]">
+              {isSoleOwner
+                ? "This is the organization's only owner — promote another member to Owner first."
+                : "No actions available."}
+            </p>
           )}
           {canChangeRoles &&
             ASSIGNABLE_ROLES.filter((r) => r !== member.role).map((role) => (

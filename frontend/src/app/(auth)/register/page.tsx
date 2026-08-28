@@ -2,19 +2,18 @@
 
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useRouter } from "next/navigation";
+import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { registerSchema, type RegisterFormValues } from "@/features/auth/schemas";
 import { authApi } from "@/features/auth/api";
 import { useLoginMutation } from "@/features/auth/hooks";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { useMutation } from "@tanstack/react-query";
+import { FlowLines } from "@/components/kora/FlowLines";
+import { FieldLabel, Kicker, Panel, PrimaryButton } from "@/components/kora/primitives";
+
+const field =
+  "w-full rounded-[9px] border border-white/[0.09] bg-white/[0.025] px-[13px] py-[11px] text-[13px] text-fg-secondary outline-none transition-colors focus:border-accent/35";
 
 export default function RegisterPage() {
-  const router = useRouter();
   const {
     register,
     handleSubmit,
@@ -46,47 +45,53 @@ export default function RegisterPage() {
   const isPending = registerMutation.isPending || loginMutation.isPending;
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <Card className="w-full max-w-sm border-border/50">
-        <CardHeader>
-          <CardTitle className="text-2xl font-semibold tracking-tight">Create account</CardTitle>
-          <CardDescription>Sign up for Kora</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" autoComplete="email" {...register("email")} />
-              {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="full_name">Full name (optional)</Label>
-              <Input id="full_name" {...register("full_name")} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                autoComplete="new-password"
-                {...register("password")}
-              />
-              {errors.password && (
-                <p className="text-sm text-destructive">{errors.password.message}</p>
-              )}
-            </div>
-            <Button type="submit" className="w-full" disabled={isPending}>
-              {isPending ? "Creating account…" : "Create account"}
-            </Button>
-          </form>
-          <p className="mt-4 text-center text-xs text-muted-foreground">
-            Already have an account?{" "}
-            <a href="/login" className="text-primary hover:underline">
-              Sign in
-            </a>
-          </p>
-        </CardContent>
-      </Card>
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-ink-950 px-4 font-sans text-fg">
+      <FlowLines />
+      <Panel className="kora-rise relative z-10 w-full max-w-sm px-8 py-9">
+        <Kicker>KORA</Kicker>
+        <h1 className="m-0 mb-1.5 text-[22px] font-semibold tracking-tight">Create account</h1>
+        <p className="m-0 mb-6 text-[13px] text-fg-dim">Sign up for Kora.</p>
+
+        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-[18px]">
+          <div>
+            <FieldLabel>EMAIL</FieldLabel>
+            <input id="email" type="email" autoComplete="email" className={field} {...register("email")} />
+            {errors.email && (
+              <p className="mt-1.5 text-[11.5px] text-danger-soft">{errors.email.message}</p>
+            )}
+          </div>
+          <div>
+            <FieldLabel>FULL NAME (OPTIONAL)</FieldLabel>
+            <input id="full_name" className={field} {...register("full_name")} />
+          </div>
+          <div>
+            <FieldLabel>PASSWORD</FieldLabel>
+            <input
+              id="password"
+              type="password"
+              autoComplete="new-password"
+              className={field}
+              {...register("password")}
+            />
+            {errors.password && (
+              <p className="mt-1.5 text-[11.5px] text-danger-soft">{errors.password.message}</p>
+            )}
+          </div>
+          <PrimaryButton
+            type="submit"
+            className={"mt-1 w-full text-center" + (isPending ? " pointer-events-none opacity-50" : "")}
+          >
+            {isPending ? "CREATING ACCOUNT…" : "CREATE ACCOUNT"}
+          </PrimaryButton>
+        </form>
+
+        <p className="m-0 mt-6 text-center text-[12.5px] text-fg-dim">
+          Already have an account?{" "}
+          <a href="/login" className="text-accent-pale hover:underline">
+            Sign in
+          </a>
+        </p>
+      </Panel>
     </div>
   );
 }

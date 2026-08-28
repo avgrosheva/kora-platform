@@ -107,15 +107,34 @@ export const documentsApi = {
     return data;
   },
 
-  exportMarkdown: async (documentId: string, fallbackName: string): Promise<void> => {
-    const response = await apiClient.get(`/documents/${documentId}/report.md`, {
+  // Both export endpoints render whatever report is passed in -- no AI
+  // call, no regeneration. The caller must pass the exact report
+  // object it already fetched/displayed, so the file matches the
+  // screen and downloads instantly instead of waiting on a second,
+  // non-deterministic generation.
+  exportMarkdown: async (documentId: string, report: DueDiligenceResponse, fallbackName: string): Promise<void> => {
+    const response = await apiClient.post(`/documents/${documentId}/report.md`, report, {
       responseType: "blob",
     });
     downloadBlob(response.data, parseFilename(response.headers["content-disposition"], fallbackName));
   },
 
-  exportPdf: async (documentId: string, fallbackName: string): Promise<void> => {
-    const response = await apiClient.get(`/documents/${documentId}/report.pdf`, {
+  exportPdf: async (documentId: string, report: DueDiligenceResponse, fallbackName: string): Promise<void> => {
+    const response = await apiClient.post(`/documents/${documentId}/report.pdf`, report, {
+      responseType: "blob",
+    });
+    downloadBlob(response.data, parseFilename(response.headers["content-disposition"], fallbackName));
+  },
+
+  exportMarkdownV2: async (documentId: string, report: DueDiligenceV2Response, fallbackName: string): Promise<void> => {
+    const response = await apiClient.post(`/documents/${documentId}/report-v2.md`, report, {
+      responseType: "blob",
+    });
+    downloadBlob(response.data, parseFilename(response.headers["content-disposition"], fallbackName));
+  },
+
+  exportPdfV2: async (documentId: string, report: DueDiligenceV2Response, fallbackName: string): Promise<void> => {
+    const response = await apiClient.post(`/documents/${documentId}/report-v2.pdf`, report, {
       responseType: "blob",
     });
     downloadBlob(response.data, parseFilename(response.headers["content-disposition"], fallbackName));

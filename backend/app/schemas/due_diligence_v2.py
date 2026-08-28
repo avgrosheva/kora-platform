@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict
 
 from app.schemas.chat import ChatSource
 from app.schemas.derived_metrics import DerivedMetricRead
+from app.schemas.due_diligence import DueDiligenceSection
 from app.schemas.validation import ValidationFindingRead
 
 
@@ -80,7 +81,16 @@ class DueDiligenceV2Response(BaseModel):
     recommendation_status: RecommendationStatus
     executive_summary: str
     verified_facts: list[VerifiedFact]
-    sections: list  # DueDiligenceSection, imported at call site to avoid circular import
+    # Was a bare, untyped `list` here (a stale "avoid circular import"
+    # concern -- there is no cycle: due_diligence.py never imports this
+    # module). That left every item as a raw dict rather than a
+    # DueDiligenceSection whenever this response round-trips through
+    # JSON (e.g. the report-export endpoints, which take an
+    # already-generated report as their request body) -- server-side
+    # construction happened to pass real DueDiligenceSection objects,
+    # masking the gap until export tried `.title`/`.content` attribute
+    # access on what was, on that path, a plain dict.
+    sections: list[DueDiligenceSection]
     red_flags: list[ValidationFindingRead]
     founder_questions: list[FounderQuestion]
     sources: list[ChatSource]

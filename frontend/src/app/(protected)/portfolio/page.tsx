@@ -10,7 +10,7 @@ import { UploadButton } from "@/features/documents/components/upload-button";
 import { CreateOrgDialog } from "@/features/organizations/components/create-org-dialog";
 import { Portfolio, NoOrganizations } from "@/components/kora/screens/Portfolio";
 import { EmptyState } from "@/components/kora/primitives";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatFileSize } from "@/lib/utils";
 import type { PortfolioMetrics, PortfolioRow, HealthBucket } from "@/components/kora/screens/Portfolio";
 import type { PortfolioDocumentRow, PortfolioResponse } from "@/types/api";
 
@@ -20,7 +20,7 @@ function toPortfolioRow(doc: PortfolioDocumentRow): PortfolioRow {
     filename: doc.filename,
     companyName: doc.company_name ?? undefined,
     status: doc.status,
-    sizeLabel: `${(doc.size_bytes / 1024).toFixed(0)} KB`,
+    sizeLabel: formatFileSize(doc.size_bytes),
     uploadedAt: format(new Date(doc.created_at), "MMM d, yyyy HH:mm"),
     score: doc.overall_score,
     coverage: doc.coverage_percent,

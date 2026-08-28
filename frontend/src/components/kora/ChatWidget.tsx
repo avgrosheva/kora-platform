@@ -6,7 +6,7 @@ import { Badge, Tabs } from './primitives';
  * Floating analyst chat. Never a route — mount once in the app shell so the
  * document context behind it is never lost.
  */
-export function ChatWidget({ open, onToggle, messages, contextLabel, mode = 'ANALYTICAL', onModeToggle, unreadCount = 0, isThinking = false, suggestions = [], placeholder = 'Ask about your indexed documents…', onSend }: {
+export function ChatWidget({ open, onToggle, messages, contextLabel, mode = 'ANALYTICAL', onModeToggle, unreadCount = 0, isThinking = false, thinkingLabel, suggestions = [], placeholder = 'Ask about your indexed documents…', onSend }: {
   open: boolean;
   onToggle: () => void;
   messages: ChatMessage[];
@@ -17,6 +17,10 @@ export function ChatWidget({ open, onToggle, messages, contextLabel, mode = 'ANA
   onModeToggle?: () => void;
   unreadCount?: number;
   isThinking?: boolean;
+  /** Overrides the default "READING N SOURCES…" text -- e.g. for a
+   * mode that can legitimately take much longer, so the wait doesn't
+   * read as a hang. */
+  thinkingLabel?: string;
   suggestions?: string[];
   placeholder?: string;
   onSend?: (text: string) => void;
@@ -119,7 +123,7 @@ export function ChatWidget({ open, onToggle, messages, contextLabel, mode = 'ANA
             {isThinking && (
               <div className="flex items-center gap-[7px] font-mono text-[10px] text-fg-dim">
                 <span className="kora-blink-fast h-[5px] w-[5px] rounded-full bg-accent-bright" />
-                READING {sources.length} SOURCES…
+                {thinkingLabel ?? `READING ${sources.length} SOURCES…`}
               </div>
             )}
           </>

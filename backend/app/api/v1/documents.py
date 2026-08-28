@@ -86,7 +86,7 @@ from app.schemas.derived_metrics import MetricsResponse
 from app.schemas.validation import ValidationChecksResponse
 from app.models.financial_fact import FinancialMetricType
 from app.schemas.findings import FindingRead, FindingsResponse
-from app.services.coverage_service import compute_coverage
+from app.services.coverage_service import compute_coverage, CoverageAssessmentService
 from app.services.derived_metrics_service import calculate_all_derived_metrics, persist_derived_metrics
 from app.services.evidence_service import EvidenceService
 from app.services.financial_facts_service import FinancialFactsService
@@ -885,6 +885,8 @@ async def get_document_coverage(
         ),
     )
 
+    await CoverageAssessmentService.persist(db, document_id, coverage_result)
+
     return CoverageAssessmentRead(document_id=str(document_id), **coverage_result.model_dump())
 
 @router.get(
@@ -923,25 +925,29 @@ async def get_document_missing_information(
     await MissingInformationService.persist_items(db, document_id, result)
     return result
 
-@router.get(
+@router.post(
     "/{document_id}/report.md",
-    summary="Export a document's due diligence report as Markdown",
+    summary="Render an already-generated due diligence report as Markdown",
     response_class=Response,
 )
 async def export_report_markdown(
     document_id: uuid.UUID,
+    report: DueDiligenceResponse,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> Response:
-    """Generate and download a due diligence report as Markdown.
+    """Render a client-supplied due diligence report as a downloadable Markdown file.
 
-    Calls the same report generation used by
-    `POST /documents/{id}/due-diligence` exactly once; no separate AI
-    pipeline, no additional OpenAI calls beyond that single generation,
-    and nothing is persisted.
+    Takes the exact report the client already generated via
+    `POST /documents/{id}/due-diligence` and displayed on screen --
+    purely formatting, no AI call. Exporting used to silently
+    regenerate the whole report a second time (several extra seconds,
+    and a non-deterministic risk of downloading different content than
+    what was on screen); this renders the one the caller is looking at.
 
     Args:
         document_id: The document's id.
+        report: The already-generated report to render.
         db: The request-scoped database session.
         current_user: The authenticated user.
 
@@ -950,40 +956,64 @@ async def export_report_markdown(
 
     Raises:
         HTTPException: With status 404 if the document does not exist
-            or the user is not a member of its organization; 409 if the
-            document is not fully processed; 503 if the AI or embedding
-            service is not configured; 502 if the AI or embedding
-            request fails, returns an invalid response, or PDF/Markdown
-            rendering fails.
+            or the user is not a member of its organization.
     """
     try:
         filename, content = await ReportExportService.export_markdown(
-            db, document_id, current_user.id
+            db, document_id, current_user.id, report
         )
     except DocumentNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
         ) from exc
-    except DueDiligenceDocumentNotProcessedError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
-        ) from exc
     except OrganizationAccessDeniedError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
         ) from exc
-    except (AIServiceNotConfiguredError, EmbeddingServiceNotConfiguredError) as exc:
+
+    return Response(
+        content=content,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+@router.post(
+    "/{document_id}/report-v2.md",
+    summary="Render an already-generated v2 due diligence report as Markdown",
+    response_class=Response,
+)
+async def export_report_markdown_v2(
+    document_id: uuid.UUID,
+    report: DueDiligenceV2Response,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> Response:
+    """Render a client-supplied v2 due diligence report as a downloadable Markdown file.
+
+    Args:
+        document_id: The document's id.
+        report: The already-generated v2 report to render.
+        db: The request-scoped database session.
+        current_user: The authenticated user.
+
+    Returns:
+        The Markdown file as a downloadable attachment.
+
+    Raises:
+        HTTPException: With status 404 if the document does not exist
+            or the user is not a member of its organization.
+    """
+    try:
+        filename, content = await ReportExportService.export_markdown_v2(
+            db, document_id, current_user.id, report
+        )
+    except DocumentNotFoundError as exc:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
         ) from exc
-    except (
-        AIRequestFailedError,
-        InvalidAIResponseError,
-        EmbeddingRequestFailedError,
-        InvalidEmbeddingDimensionError,
-    ) as exc:
+    except OrganizationAccessDeniedError as exc:
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
         ) from exc
 
     return Response(
@@ -993,25 +1023,27 @@ async def export_report_markdown(
     )
 
 
-@router.get(
+@router.post(
     "/{document_id}/report.pdf",
-    summary="Export a document's due diligence report as PDF",
+    summary="Render an already-generated due diligence report as PDF",
     response_class=Response,
 )
 async def export_report_pdf(
     document_id: uuid.UUID,
+    report: DueDiligenceResponse,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> Response:
-    """Generate and download a due diligence report as a PDF.
+    """Render a client-supplied due diligence report as a downloadable PDF.
 
-    Calls the same report generation used by
-    `POST /documents/{id}/due-diligence` exactly once; no separate AI
-    pipeline, no additional OpenAI calls beyond that single generation,
-    and nothing is persisted.
+    Takes the exact report the client already generated via
+    `POST /documents/{id}/due-diligence` and displayed on screen --
+    purely formatting/layout, no AI call. See `export_report_markdown`
+    for why this no longer regenerates.
 
     Args:
         document_id: The document's id.
+        report: The already-generated report to render.
         db: The request-scoped database session.
         current_user: The authenticated user.
 
@@ -1020,39 +1052,72 @@ async def export_report_pdf(
 
     Raises:
         HTTPException: With status 404 if the document does not exist
-            or the user is not a member of its organization; 409 if the
-            document is not fully processed; 503 if the AI or embedding
-            service is not configured; 502 if the AI or embedding
-            request fails, returns an invalid response, or PDF
+            or the user is not a member of its organization; 502 if PDF
             rendering fails.
     """
     try:
         filename, pdf_bytes = await ReportExportService.export_pdf(
-            db, document_id, current_user.id
+            db, document_id, current_user.id, report
         )
     except DocumentNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
         ) from exc
-    except DueDiligenceDocumentNotProcessedError as exc:
+    except OrganizationAccessDeniedError as exc:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    except ReportRenderingFailedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
+        ) from exc
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+@router.post(
+    "/{document_id}/report-v2.pdf",
+    summary="Render an already-generated v2 due diligence report as PDF",
+    response_class=Response,
+)
+async def export_report_pdf_v2(
+    document_id: uuid.UUID,
+    report: DueDiligenceV2Response,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> Response:
+    """Render a client-supplied v2 due diligence report as a downloadable PDF.
+
+    Args:
+        document_id: The document's id.
+        report: The already-generated v2 report to render.
+        db: The request-scoped database session.
+        current_user: The authenticated user.
+
+    Returns:
+        The PDF file as a downloadable attachment.
+
+    Raises:
+        HTTPException: With status 404 if the document does not exist
+            or the user is not a member of its organization; 502 if PDF
+            rendering fails.
+    """
+    try:
+        filename, pdf_bytes = await ReportExportService.export_pdf_v2(
+            db, document_id, current_user.id, report
+        )
+    except DocumentNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
         ) from exc
     except OrganizationAccessDeniedError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
         ) from exc
-    except (AIServiceNotConfiguredError, EmbeddingServiceNotConfiguredError) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
-        ) from exc
-    except (
-        AIRequestFailedError,
-        InvalidAIResponseError,
-        EmbeddingRequestFailedError,
-        InvalidEmbeddingDimensionError,
-        ReportRenderingFailedError,
-    ) as exc:
+    except ReportRenderingFailedError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
         ) from exc

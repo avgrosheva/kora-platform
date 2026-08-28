@@ -1,10 +1,14 @@
 """Export of due diligence reports as Markdown and PDF.
 
-Renders the report produced by `DueDiligenceService` into downloadable
-file formats. No AI generation happens in this module — it consumes
-`DueDiligenceService.generate_report` exactly once per export call and
-performs pure formatting/layout on the result. No files, markdown, or
-PDFs are persisted; everything is generated synchronously and returned
+Pure formatting/layout of an already-generated report — no AI
+generation happens in this module. The report (v1 or v2) is supplied
+by the caller, generated exactly once by `DueDiligenceService` /
+`DueDiligenceV2Service` for the on-screen "Generate Report" action;
+export only renders that same object, rather than re-running
+generation a second time (which used to add several seconds and could
+even produce different content than what the user was looking at,
+since generation is not deterministic). No files, markdown, or PDFs
+are persisted; everything is generated synchronously and returned
 in-memory. Services operate directly on `AsyncSession` — there is no
 repository layer in this project's architecture.
 """
@@ -33,8 +37,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.organization import Organization
 from app.schemas.due_diligence import DueDiligenceResponse
+from app.schemas.due_diligence_v2 import DueDiligenceV2Response
 from app.services.document_service import DocumentService
-from app.services.due_diligence_service import DueDiligenceService
 
 DEFAULT_RETRIEVAL_TOP_K = 8
 
@@ -121,6 +125,98 @@ def render_markdown(
 
     for section in report.sections:
         lines.append(f"## {section.title}")
+        lines.append("")
+        lines.append(section.content)
+        lines.append("")
+
+    if report.sources:
+        lines.append("## Sources")
+        lines.append("")
+        for index, source in enumerate(report.sources, start=1):
+            lines.append(
+                f"{index}. Document `{source.document_id}`, chunk "
+                f"{source.chunk_index} (similarity "
+                f"{source.similarity_score:.3f}): {source.snippet}"
+            )
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+_RECOMMENDATION_LABELS = {
+    "strong_candidate": "Strong Candidate",
+    "worth_exploring": "Worth Exploring",
+    "needs_more_info": "Needs More Info",
+    "concerns_identified": "Concerns Identified",
+}
+
+
+def render_markdown_v2(
+    report: DueDiligenceV2Response,
+    organization_name: str,
+    document_name: str,
+    generated_at: datetime,
+) -> str:
+    """Render an evidence-grounded (v2) due diligence report as Markdown.
+
+    Adds the v2-only content — recommendation, verified facts, red
+    flags, founder questions — ahead of the same narrative sections and
+    sources `render_markdown` renders for v1.
+
+    Args:
+        report: The due diligence report to render.
+        organization_name: The organization's display name.
+        document_name: The source document's original filename.
+        generated_at: The timestamp to display as the generation time.
+
+    Returns:
+        The complete Markdown document as a string.
+    """
+    recommendation = _RECOMMENDATION_LABELS.get(
+        report.recommendation_status.value, report.recommendation_status.value
+    )
+    lines = [
+        f"# Due Diligence Report: {document_name}",
+        "",
+        f"**Organization:** {organization_name}  ",
+        f"**Document:** {document_name}  ",
+        f"**Generated:** {generated_at.strftime('%Y-%m-%d %H:%M UTC')}  ",
+        f"**Recommendation:** {recommendation}  ",
+        f"**Model used:** {report.model_used}",
+        "",
+        "---",
+        "",
+        "## Executive Summary",
+        "",
+        report.executive_summary,
+        "",
+    ]
+
+    if report.verified_facts:
+        lines.append("## Verified Facts")
+        lines.append("")
+        for fact in report.verified_facts:
+            lines.append(f"- **{fact.label}:** {fact.value_display}")
+        lines.append("")
+
+    if report.red_flags:
+        lines.append(f"## Red Flags ({len(report.red_flags)})")
+        lines.append("")
+        for flag in report.red_flags:
+            lines.append(f"- **[{flag.severity.value.upper()}] {flag.title}** — {flag.description}")
+        lines.append("")
+
+    if report.founder_questions:
+        lines.append("## Questions for the Founders")
+        lines.append("")
+        for question in report.founder_questions:
+            lines.append(f"- **[{question.priority.upper()}]** {question.question}")
+        lines.append("")
+
+    lines.append("## Full Report")
+    lines.append("")
+    for section in report.sections:
+        lines.append(f"### {section.title}")
         lines.append("")
         lines.append(section.content)
         lines.append("")
@@ -340,61 +436,168 @@ def _build_pdf_bytes(
     return buffer.getvalue()
 
 
+def render_pdf_v2(
+    report: DueDiligenceV2Response,
+    organization_name: str,
+    document_name: str,
+    generated_at: datetime,
+) -> bytes:
+    """Render an evidence-grounded (v2) due diligence report as a PDF.
+
+    Same title page / table of contents / page-numbering machinery as
+    `render_pdf`, with the v2-only content (recommendation, verified
+    facts, red flags, founder questions) added ahead of the narrative
+    sections.
+
+    Args:
+        report: The due diligence report to render.
+        organization_name: The organization's display name.
+        document_name: The source document's original filename.
+        generated_at: The timestamp to display as the generation time.
+
+    Returns:
+        The complete PDF document as raw bytes.
+
+    Raises:
+        ReportRenderingFailedError: If PDF layout/rendering fails for
+            any reason.
+    """
+    try:
+        return _build_pdf_bytes_v2(report, organization_name, document_name, generated_at)
+    except Exception as exc:  # noqa: BLE001 - any rendering failure must be reported, not silently swallowed
+        raise ReportRenderingFailedError(f"Failed to render PDF: {exc}") from exc
+
+
+def _build_pdf_bytes_v2(
+    report: DueDiligenceV2Response,
+    organization_name: str,
+    document_name: str,
+    generated_at: datetime,
+) -> bytes:
+    """Build the v2 PDF document bytes using ReportLab's platypus API."""
+    buffer = io.BytesIO()
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle("ReportTitle", parent=styles["Title"], fontSize=24, spaceAfter=10)
+    subtitle_style = ParagraphStyle(
+        "ReportSubtitle", parent=styles["Normal"], fontSize=11, textColor=colors.grey, spaceAfter=4
+    )
+    heading_style = ParagraphStyle("SectionHeading", parent=styles["Heading1"], spaceBefore=18, spaceAfter=8)
+    subheading_style = ParagraphStyle("SubHeading", parent=styles["Heading2"], spaceBefore=12, spaceAfter=6)
+    body_style = ParagraphStyle("SectionBody", parent=styles["BodyText"], spaceAfter=10, leading=14)
+    bullet_style = ParagraphStyle("Bullet", parent=body_style, leftIndent=14, spaceAfter=6)
+    toc_heading_style = ParagraphStyle("TOCHeading", parent=styles["Heading1"], spaceAfter=12)
+
+    frame = Frame(0.75 * inch, 0.75 * inch, LETTER[0] - 1.5 * inch, LETTER[1] - 1.5 * inch, id="normal")
+    doc = _ReportDocTemplate(buffer, pagesize=LETTER, title=f"Due Diligence Report - {document_name}")
+    doc.addPageTemplates([PageTemplate(id="main", frames=[frame])])
+
+    story: list = []
+
+    # --- Title page ---
+    recommendation = _RECOMMENDATION_LABELS.get(
+        report.recommendation_status.value, report.recommendation_status.value
+    )
+    story.append(Spacer(1, 2 * inch))
+    story.append(Paragraph("Due Diligence Report", title_style))
+    story.append(Paragraph(document_name, subtitle_style))
+    story.append(Spacer(1, 0.3 * inch))
+    story.append(Paragraph(f"Organization: {organization_name}", subtitle_style))
+    story.append(Paragraph(f"Generated: {generated_at.strftime('%Y-%m-%d %H:%M UTC')}", subtitle_style))
+    story.append(Paragraph(f"Recommendation: {recommendation}", subtitle_style))
+    story.append(Paragraph(f"Model used: {report.model_used}", subtitle_style))
+    story.append(PageBreak())
+
+    # --- Table of contents ---
+    toc = TableOfContents()
+    toc.levelStyles = [ParagraphStyle(name="TOCLevel0", fontSize=11, leading=18)]
+    story.append(Paragraph("Table of Contents", toc_heading_style))
+    story.append(toc)
+    story.append(PageBreak())
+
+    # --- Executive summary ---
+    story.append(Paragraph("Executive Summary", heading_style))
+    story.append(Paragraph(report.executive_summary, body_style))
+
+    if report.verified_facts:
+        story.append(Paragraph("Verified Facts", subheading_style))
+        for fact in report.verified_facts:
+            story.append(Paragraph(f"• <b>{fact.label}:</b> {fact.value_display}", bullet_style))
+        story.append(Spacer(1, 6))
+
+    # --- Red flags ---
+    if report.red_flags:
+        story.append(Paragraph(f"Red Flags ({len(report.red_flags)})", heading_style))
+        for flag in report.red_flags:
+            story.append(
+                Paragraph(f"• <b>[{flag.severity.value.upper()}] {flag.title}</b> — {flag.description}", bullet_style)
+            )
+        story.append(Spacer(1, 6))
+
+    # --- Founder questions ---
+    if report.founder_questions:
+        story.append(Paragraph("Questions for the Founders", heading_style))
+        for question in report.founder_questions:
+            story.append(Paragraph(f"• <b>[{question.priority.upper()}]</b> {question.question}", bullet_style))
+        story.append(Spacer(1, 6))
+
+    # --- Full report sections ---
+    story.append(Paragraph("Full Report", heading_style))
+    for section in report.sections:
+        story.append(Paragraph(section.title, subheading_style))
+        for paragraph_text in section.content.split("\n"):
+            if paragraph_text.strip():
+                story.append(Paragraph(paragraph_text, body_style))
+        story.append(Spacer(1, 6))
+
+    # --- Sources ---
+    if report.sources:
+        story.append(Paragraph("Sources", heading_style))
+        for index, source in enumerate(report.sources, start=1):
+            citation = (
+                f"{index}. Document {source.document_id}, chunk "
+                f"{source.chunk_index} (similarity "
+                f"{source.similarity_score:.3f}): {source.snippet}"
+            )
+            story.append(Paragraph(citation, body_style))
+
+    doc.multiBuild(story, canvasmaker=_NumberedCanvas)
+    return buffer.getvalue()
+
+
 class ReportExportService:
-    """Generates downloadable Markdown/PDF exports of due diligence reports."""
+    """Formats an already-generated due diligence report as Markdown/PDF.
+
+    Takes the exact report object the client already has (from
+    `POST /due-diligence` or `/due-diligence-v2`) rather than
+    regenerating it -- see this module's docstring for why.
+    """
 
     @staticmethod
     async def export_markdown(
         db: AsyncSession,
         document_id: uuid.UUID,
         actor_id: uuid.UUID,
-        top_k: int = DEFAULT_RETRIEVAL_TOP_K,
+        report: DueDiligenceResponse,
     ) -> tuple[str, str]:
-        """Generate a due diligence report and render it as Markdown.
-
-        Calls `DueDiligenceService.generate_report` exactly once — no
-        separate AI pipeline, no duplicate generation.
+        """Render an already-generated v1 report as Markdown.
 
         Args:
             db: The active database session.
             document_id: The document's id.
             actor_id: The id of the requesting user.
-            top_k: The number of retrieved excerpts to use as context,
-                passed through to `DueDiligenceService`.
+            report: The report to render, already generated by the
+                caller.
 
         Returns:
             A tuple of `(filename, markdown_content)`.
 
         Raises:
             DocumentNotFoundError: If the document does not exist, or
-                the actor is not a member of its organization
-                (propagated from `DueDiligenceService`).
-            DocumentNotProcessedError: If the document's text extraction
-                has not completed successfully (propagated from
-                `DueDiligenceService`).
-            AIServiceNotConfiguredError: If no OpenAI API key is
-                configured (propagated from `DueDiligenceService`).
-            AIRequestFailedError: If report generation fails after
-                retrying once (propagated from `DueDiligenceService`).
-            InvalidAIResponseError: If the AI's response is invalid
-                (propagated from `DueDiligenceService`).
-            EmbeddingServiceNotConfiguredError: If no OpenAI API key is
-                configured for embeddings (propagated from
-                `DueDiligenceService`).
-            EmbeddingRequestFailedError: If the retrieval query's
-                embedding request fails (propagated from
-                `DueDiligenceService`).
-            InvalidEmbeddingDimensionError: If the retrieval query's
-                embedding has the wrong dimensionality (propagated from
-                `DueDiligenceService`).
+                the actor is not a member of its organization.
         """
-        report = await DueDiligenceService.generate_report(
-            db, document_id, actor_id, top_k
-        )
         document = await DocumentService.get_document(db, document_id, actor_id)
-        organization_name = await _fetch_organization_name(
-            db, document.organization_id
-        )
+        organization_name = await _fetch_organization_name(db, document.organization_id)
         generated_at = datetime.now(timezone.utc)
 
         content = render_markdown(
@@ -408,60 +611,98 @@ class ReportExportService:
         db: AsyncSession,
         document_id: uuid.UUID,
         actor_id: uuid.UUID,
-        top_k: int = DEFAULT_RETRIEVAL_TOP_K,
+        report: DueDiligenceResponse,
     ) -> tuple[str, bytes]:
-        """Generate a due diligence report and render it as a PDF.
-
-        Calls `DueDiligenceService.generate_report` exactly once — no
-        separate AI pipeline, no duplicate generation.
+        """Render an already-generated v1 report as a PDF.
 
         Args:
             db: The active database session.
             document_id: The document's id.
             actor_id: The id of the requesting user.
-            top_k: The number of retrieved excerpts to use as context,
-                passed through to `DueDiligenceService`.
+            report: The report to render, already generated by the
+                caller.
 
         Returns:
             A tuple of `(filename, pdf_bytes)`.
 
         Raises:
             DocumentNotFoundError: If the document does not exist, or
-                the actor is not a member of its organization
-                (propagated from `DueDiligenceService`).
-            DocumentNotProcessedError: If the document's text extraction
-                has not completed successfully (propagated from
-                `DueDiligenceService`).
-            AIServiceNotConfiguredError: If no OpenAI API key is
-                configured (propagated from `DueDiligenceService`).
-            AIRequestFailedError: If report generation fails after
-                retrying once (propagated from `DueDiligenceService`).
-            InvalidAIResponseError: If the AI's response is invalid
-                (propagated from `DueDiligenceService`).
-            EmbeddingServiceNotConfiguredError: If no OpenAI API key is
-                configured for embeddings (propagated from
-                `DueDiligenceService`).
-            EmbeddingRequestFailedError: If the retrieval query's
-                embedding request fails (propagated from
-                `DueDiligenceService`).
-            InvalidEmbeddingDimensionError: If the retrieval query's
-                embedding has the wrong dimensionality (propagated from
-                `DueDiligenceService`).
+                the actor is not a member of its organization.
             ReportRenderingFailedError: If PDF layout/rendering fails.
         """
-        report = await DueDiligenceService.generate_report(
-            db, document_id, actor_id, top_k
-        )
         document = await DocumentService.get_document(db, document_id, actor_id)
-        organization_name = await _fetch_organization_name(
-            db, document.organization_id
-        )
+        organization_name = await _fetch_organization_name(db, document.organization_id)
         generated_at = datetime.now(timezone.utc)
 
         pdf_bytes = render_pdf(
             report, organization_name, document.original_filename, generated_at
         )
-        filename = (
-            f"due-diligence-{_safe_filename_stub(document.original_filename)}.pdf"
+        filename = f"due-diligence-{_safe_filename_stub(document.original_filename)}.pdf"
+        return filename, pdf_bytes
+
+    @staticmethod
+    async def export_markdown_v2(
+        db: AsyncSession,
+        document_id: uuid.UUID,
+        actor_id: uuid.UUID,
+        report: DueDiligenceV2Response,
+    ) -> tuple[str, str]:
+        """Render an already-generated v2 report as Markdown.
+
+        Args:
+            db: The active database session.
+            document_id: The document's id.
+            actor_id: The id of the requesting user.
+            report: The report to render, already generated by the
+                caller.
+
+        Returns:
+            A tuple of `(filename, markdown_content)`.
+
+        Raises:
+            DocumentNotFoundError: If the document does not exist, or
+                the actor is not a member of its organization.
+        """
+        document = await DocumentService.get_document(db, document_id, actor_id)
+        organization_name = await _fetch_organization_name(db, document.organization_id)
+        generated_at = datetime.now(timezone.utc)
+
+        content = render_markdown_v2(
+            report, organization_name, document.original_filename, generated_at
         )
+        filename = f"due-diligence-{_safe_filename_stub(document.original_filename)}.md"
+        return filename, content
+
+    @staticmethod
+    async def export_pdf_v2(
+        db: AsyncSession,
+        document_id: uuid.UUID,
+        actor_id: uuid.UUID,
+        report: DueDiligenceV2Response,
+    ) -> tuple[str, bytes]:
+        """Render an already-generated v2 report as a PDF.
+
+        Args:
+            db: The active database session.
+            document_id: The document's id.
+            actor_id: The id of the requesting user.
+            report: The report to render, already generated by the
+                caller.
+
+        Returns:
+            A tuple of `(filename, pdf_bytes)`.
+
+        Raises:
+            DocumentNotFoundError: If the document does not exist, or
+                the actor is not a member of its organization.
+            ReportRenderingFailedError: If PDF layout/rendering fails.
+        """
+        document = await DocumentService.get_document(db, document_id, actor_id)
+        organization_name = await _fetch_organization_name(db, document.organization_id)
+        generated_at = datetime.now(timezone.utc)
+
+        pdf_bytes = render_pdf_v2(
+            report, organization_name, document.original_filename, generated_at
+        )
+        filename = f"due-diligence-{_safe_filename_stub(document.original_filename)}.pdf"
         return filename, pdf_bytes

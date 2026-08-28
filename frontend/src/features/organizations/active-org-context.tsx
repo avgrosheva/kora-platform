@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { useOrganizations } from "./hooks";
+import { useAuth } from "@/features/auth/auth-context";
 import type { OrganizationRead } from "@/types/api";
 
 const STORAGE_KEY = "kora_active_org_id";
@@ -16,7 +17,15 @@ interface ActiveOrgContextValue {
 const ActiveOrgContext = createContext<ActiveOrgContextValue | undefined>(undefined);
 
 export function ActiveOrgProvider({ children }: { children: ReactNode }) {
-  const { data: organizations = [], isLoading } = useOrganizations();
+  // This provider is mounted app-wide (root `providers.tsx`), including
+  // on the public /login and /register routes. Without gating on auth,
+  // it fires an authenticated `GET /organizations` call unconditionally
+  // on mount, which 401s while logged out and trips the global
+  // interceptor's redirect-to-/login -- e.g. bouncing a user straight
+  // off /register. Only fetch once there's actually a logged-in user.
+  const { user, isLoading: authLoading } = useAuth();
+  const { data: organizations = [], isLoading: orgsLoading } = useOrganizations(!!user);
+  const isLoading = authLoading || (!!user && orgsLoading);
   const [activeOrgId, setActiveOrgIdState] = useState<string | null>(null);
 
   useEffect(() => {

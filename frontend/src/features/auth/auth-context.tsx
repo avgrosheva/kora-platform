@@ -9,6 +9,7 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { authApi } from "./api";
 import { setStoredToken } from "@/lib/api-client";
 import type { UserRead } from "@/types/api";
@@ -27,6 +28,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserRead | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     const token = typeof window !== "undefined" ? window.localStorage.getItem("kora_access_token") : null;
@@ -44,6 +46,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (credentials: LoginCredentials) => {
     const { access_token } = await authApi.login(credentials);
     setStoredToken(access_token);
+    // Query keys like ["organizations"] aren't scoped per-user, so
+    // without this, a second account signing in within the same
+    // browser session would briefly render the previous account's
+    // still-cached data (e.g. its org name) before the real fetch for
+    // the new account lands.
+    queryClient.clear();
     const currentUser = await authApi.me();
     setUser(currentUser);
     router.push("/portfolio");
@@ -52,6 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = () => {
     setStoredToken(null);
     setUser(null);
+    queryClient.clear();
     router.push("/login");
   };
 
