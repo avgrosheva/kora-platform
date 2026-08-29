@@ -4,7 +4,7 @@ Kora turns a company's raw pitch deck or financial documents into a structured, 
 
 It is an independently designed and built product: backend, data model, AI pipeline, and frontend design system are all original work, built end-to-end by one person.
 
-![Portfolio/ Dashboard](C:\Users\grosh\kora-platform\docs\images\portfolio.png)
+![Portfolio/ Dashboard](C:/Users/grosh/kora-platform/docs/images/portfolio.png)
 
 
 ## The problem
