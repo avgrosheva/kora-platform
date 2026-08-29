@@ -17,10 +17,13 @@ export function Documents({ orgName, documents, onOpenDocument, onUpload }: {
       />
 
       {documents.length === 0 ? (
-        <EmptyState title="No documents yet" blurb="Upload a PDF, DOCX, or TXT file to begin analysis." />
+        <EmptyState
+          title="No documents yet"
+          blurb="Upload a pitch deck or financial document — Kora will find the numbers, check them for inconsistencies, and tell you whether it's worth digging deeper. Accepts PDF, DOCX, or TXT."
+        />
       ) : (
         <Panel className="kora-rise kora-d1 overflow-hidden">
-          <div className="grid grid-cols-[2.4fr_1fr_0.8fr_1.2fr] gap-4 border-b border-white/[0.05] px-5 py-3 font-mono text-[9.5px] tracking-label text-fg-faint">
+          <div className="grid grid-cols-[2.4fr_1fr_0.8fr_1.2fr] gap-4 border-b border-white/[0.05] px-5 py-3 font-mono text-[10.5px] tracking-label text-fg-faint">
             <span>FILENAME</span><span>STATUS</span><span>SIZE</span><span>UPLOADED</span>
           </div>
           {documents.map((doc) => (
@@ -31,11 +34,11 @@ export function Documents({ orgName, documents, onOpenDocument, onUpload }: {
             >
               <div className="flex min-w-0 items-center gap-3">
                 <span className="h-[26px] w-[26px] shrink-0 rounded-[7px] border border-white/[0.08] bg-white/[0.03]" />
-                <span className="truncate text-[13.5px] font-medium">{doc.filename}</span>
+                <span className="truncate text-[14.5px] font-medium">{doc.filename}</span>
               </div>
               <div><StatusBadge status={doc.status} /></div>
-              <div className="font-mono text-[11px] text-fg-muted">{doc.sizeLabel}</div>
-              <div className="font-mono text-[11px] text-fg-muted">{doc.uploadedAt}</div>
+              <div className="font-mono text-[12px] text-fg-muted">{doc.sizeLabel}</div>
+              <div className="font-mono text-[12px] text-fg-muted">{doc.uploadedAt}</div>
             </div>
           ))}
         </Panel>

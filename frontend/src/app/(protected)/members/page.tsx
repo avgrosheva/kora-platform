@@ -6,6 +6,7 @@ import { useActiveOrg } from "@/features/organizations/active-org-context";
 import { useAuth } from "@/features/auth/auth-context";
 import { useMembers, useInvitations } from "@/features/organizations/hooks";
 import { Members as KoraMembers } from "@/components/kora/screens/Members";
+import { PageLoading } from "@/components/kora/primitives";
 import type { Member as KoraMember } from "@/components/kora/types";
 import { NoActiveOrg } from "@/features/organizations/components/no-active-org";
 import { InviteMemberDialog } from "@/features/organizations/components/invite-member-dialog";
@@ -47,7 +48,7 @@ export default function MembersPage() {
   const [actionUserId, setActionUserId] = useState<string | null>(null);
 
   if (orgsLoading || isLoading) {
-    return <div className="relative z-10 p-9 text-sm text-fg-dim">Loading…</div>;
+    return <PageLoading />;
   }
 
   if (!activeOrg) {

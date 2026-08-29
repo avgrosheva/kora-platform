@@ -12,6 +12,13 @@ import type { ChatMessage as KoraChatMessage } from "@/components/kora/types";
 import type { ChatMessage } from "@/features/chat/types";
 import type { ChatSource, ToolCallRecord } from "@/types/api";
 
+const EMPTY_CONVERSATION_SUGGESTIONS = [
+  "What are the biggest risks?",
+  "Why this score?",
+  "What should I ask the founders?",
+  "What's missing?",
+];
+
 const TOOL_LABELS: Record<string, string> = {
   search_document_chunks: "Searched documents",
   get_financial_time_series: "Fetched time series",
@@ -140,6 +147,7 @@ export function ChatWidget() {
       onModeToggle={() => setUseTools((v) => !v)}
       isThinking={isPending}
       thinkingLabel={useTools && askChatV2.isPending ? "ANALYZING — CAN TAKE A MINUTE OR TWO…" : undefined}
+      suggestions={messages.length === 0 ? EMPTY_CONVERSATION_SUGGESTIONS : undefined}
       placeholder={`Ask about ${activeOrg.name}'s indexed documents…`}
       onSend={handleSend}
     />

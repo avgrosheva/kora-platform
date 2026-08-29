@@ -15,19 +15,22 @@ export function ChecksTab({
   if (findings.length === 0) {
     return hasFinancialEvidence ? (
       <EmptyState
-        title="No deterministic inconsistencies detected"
+        title="Nothing concerning found"
         blurb="Financial facts and extracted risk claims were checked and nothing was flagged. This does not mean the underlying business has no risks — only that nothing in the uploaded materials contradicted itself or matched a known risk pattern."
       />
     ) : (
       <EmptyState
-        title="Insufficient information to evaluate"
-        blurb="No financial facts have been extracted yet, so deterministic checks have nothing to run against. Extract financial data first, from the Financials tab, then check back."
+        title="Not enough information to check yet"
+        blurb="No financial facts have been extracted yet, so there's nothing to check them against. Extract financial data first, from the Financials tab, then check back."
       />
     );
   }
 
   return (
     <div>
+      <p className="m-0 mb-[18px] text-[13.5px] text-fg-dim [text-wrap:pretty]">
+        Automated checks and things Kora flagged as worth a closer look.
+      </p>
       <div className="mb-[18px] flex flex-wrap items-center gap-5">
         {deterministicCount > 0 && (
           <Legend tone="warn" label={deterministicCount + " DETERMINISTIC INCONSISTENC" + (deterministicCount === 1 ? "Y" : "IES")} />
@@ -53,7 +56,7 @@ function Legend({ tone, label }: { tone: "warn" | "danger" | "accent"; label: st
   return (
     <div className="flex items-center gap-2">
       <span className={"h-1.5 w-1.5 rounded-full " + dot} />
-      <span className="font-mono text-[10.5px] text-fg-quiet">{label}</span>
+      <span className="font-mono text-[11.5px] text-fg-quiet">{label}</span>
     </div>
   );
 }

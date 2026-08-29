@@ -6,6 +6,7 @@ import { useActiveOrg } from "@/features/organizations/active-org-context";
 import { useUpdateOrganization } from "@/features/organizations/hooks";
 import { updateOrgSchema } from "@/features/organizations/schemas";
 import { Settings as KoraSettings } from "@/components/kora/screens/Settings";
+import { PageLoading } from "@/components/kora/primitives";
 import { NoActiveOrg } from "@/features/organizations/components/no-active-org";
 import { DeleteOrgModal } from "@/features/organizations/components/delete-org-modal";
 
@@ -15,7 +16,7 @@ export default function SettingsPage() {
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   if (isLoading) {
-    return <div className="relative z-10 p-9 text-sm text-fg-dim">Loading…</div>;
+    return <PageLoading />;
   }
 
   if (!activeOrg) {

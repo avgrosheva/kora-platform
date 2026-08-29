@@ -22,7 +22,7 @@ import { CoverageTab } from "@/components/kora/screens/tabs/CoverageTab";
 import { ScoreTab } from "@/components/kora/screens/tabs/ScoreTab";
 import { DueDiligenceTab } from "@/components/kora/screens/tabs/DueDiligenceTab";
 import { DueDiligenceV2Tab } from "@/components/kora/screens/tabs/DueDiligenceV2Tab";
-import { EmptyState } from "@/components/kora/primitives";
+import { EmptyState, PageLoading } from "@/components/kora/primitives";
 import type { DetailTabId, DocumentSummary } from "@/components/kora/types";
 import type { DocumentRead } from "@/types/api";
 
@@ -66,7 +66,7 @@ export default function DocumentDetailPage() {
   const { setOpen: setChatOpen } = useChatWidget();
 
   if (isLoading) {
-    return <div className="relative z-10 p-9 text-sm text-fg-dim">Loading…</div>;
+    return <PageLoading />;
   }
 
   if (isError || !document) {

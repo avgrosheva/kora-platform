@@ -22,12 +22,12 @@ export function CreateOrgModal({ open, onClose, onCreate }: {
         className="kora-rise w-[min(430px,100%)] overflow-hidden rounded-2xl border border-white/[0.09] bg-gradient-to-b from-ink-850 to-ink-800 shadow-modal"
       >
         <header className="flex items-center justify-between border-b border-white/[0.07] bg-gradient-to-r from-accent/10 to-transparent px-5 py-[18px]">
-          <h2 className="text-sm font-semibold">Create organization</h2>
+          <h2 className="text-[15px] font-semibold">Create organization</h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-[7px] border border-white/[0.09] bg-transparent text-[13px] text-fg-muted hover:border-white/20 hover:text-fg"
+            className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-[7px] border border-white/[0.09] bg-transparent text-[14px] text-fg-muted hover:border-white/20 hover:text-fg"
           >
             ×
           </button>
@@ -39,14 +39,14 @@ export function CreateOrgModal({ open, onClose, onCreate }: {
             value={name}
             onChange={(e) => setName(e.target.value)}
             autoFocus
-            className="mb-[18px] w-full rounded-[9px] border border-accent/35 bg-white/[0.03] px-[13px] py-[11px] text-[13px] text-fg-secondary shadow-[0_0_22px_-12px_rgba(77,141,255,0.9)] outline-none"
+            className="mb-[18px] w-full rounded-[9px] border border-accent/35 bg-white/[0.03] px-[13px] py-[11px] text-[14px] text-fg-secondary shadow-[0_0_22px_-12px_rgba(77,141,255,0.9)] outline-none"
           />
           <FieldLabel>SLUG <span className="text-fg-ghost">(OPTIONAL)</span></FieldLabel>
           <input
             value={slug}
             onChange={(e) => setSlug(e.target.value)}
             placeholder="auto-generated-if-empty"
-            className="w-full rounded-[9px] border border-white/[0.09] bg-white/[0.025] px-[13px] py-[11px] font-mono text-[12.5px] text-fg-secondary outline-none placeholder:text-fg-disabled focus:border-accent/35"
+            className="w-full rounded-[9px] border border-white/[0.09] bg-white/[0.025] px-[13px] py-[11px] font-mono text-[13.5px] text-fg-secondary outline-none placeholder:text-fg-disabled focus:border-accent/35"
           />
         </div>
 

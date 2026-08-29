@@ -91,14 +91,14 @@ export function AnalysisTab({
         {isAnalyzing && <LoadPulse />}
         <div className="relative flex flex-wrap items-start justify-between gap-9">
           <div className="min-w-[280px]">
-            <div className="mb-3.5 font-mono text-[10px] tracking-kicker text-accent-ghost">DECISION SNAPSHOT</div>
+            <div className="mb-3.5 font-mono text-[11px] tracking-kicker text-accent-ghost">WHAT YOU NEED TO KNOW IN 60 SECONDS</div>
             {scored ? (
               <>
                 <div className="mb-3 flex items-baseline gap-3.5">
                   <span className="font-mono text-[52px] font-medium tracking-[-2px] text-fg">{Math.round(score!.overall_score as number)}</span>
                   <Badge tone="good">COMPOSITE SCORE</Badge>
                 </div>
-                <p className="m-0 max-w-[600px] text-[13px] text-fg-muted [text-wrap:pretty]">
+                <p className="m-0 max-w-[600px] text-[14px] text-fg-muted [text-wrap:pretty]">
                   Composite score computed from document-stated facts and deterministic checks at current coverage.
                 </p>
               </>
@@ -108,7 +108,7 @@ export function AnalysisTab({
                   <span className="kora-blink h-[7px] w-[7px] rounded-full bg-warn shadow-[0_0_12px_2px_rgba(242,178,76,0.7)]" />
                   <span className="text-[23px] font-medium tracking-[-0.5px] text-warn-wash">Not yet scored</span>
                 </div>
-                <p className="m-0 max-w-[600px] text-[13px] text-fg-muted [text-wrap:pretty]">
+                <p className="m-0 max-w-[600px] text-[14px] text-fg-muted [text-wrap:pretty]">
                   Kora withholds a composite score until evidence coverage is sufficient.{" "}
                   {criticalGaps.length} critical gap{criticalGaps.length === 1 ? "" : "s"} blocking a result.
                 </p>
@@ -118,13 +118,13 @@ export function AnalysisTab({
 
           <div className="w-[210px] shrink-0">
             <div className="mb-2.5 flex items-baseline justify-between">
-              <span className="font-mono text-[10px] tracking-label text-fg-dim">COVERAGE</span>
+              <span className="font-mono text-[11px] tracking-label text-fg-dim">COVERAGE</span>
               <span className={"font-mono text-[19px] " + (coveragePercent >= COVERAGE_THRESHOLD_PERCENT ? "text-good" : "text-warn")}>
                 {coveragePercent}%
               </span>
             </div>
             <Meter thick percent={coveragePercent} tone={coveragePercent >= COVERAGE_THRESHOLD_PERCENT ? "good" : "warn"} markerAt={COVERAGE_THRESHOLD_PERCENT} delayClass="kora-d5" />
-            <div className="mt-2 font-mono text-[9.5px] text-fg-faint">SCORE THRESHOLD {COVERAGE_THRESHOLD_PERCENT}%</div>
+            <div className="mt-2 font-mono text-[10.5px] text-fg-faint">SCORE THRESHOLD {COVERAGE_THRESHOLD_PERCENT}%</div>
           </div>
         </div>
       </section>
@@ -134,14 +134,14 @@ export function AnalysisTab({
         <Panel className="p-5">
           <SectionLabel className="mb-5">TOP POSITIVE SIGNALS</SectionLabel>
           {positiveSignals.length === 0 ? (
-            <div className="text-xs text-fg-disabled">No dimension scored {POSITIVE_SIGNAL_THRESHOLD}+ yet.</div>
+            <div className="text-[13px] text-fg-disabled">No dimension scored {POSITIVE_SIGNAL_THRESHOLD}+ yet.</div>
           ) : (
             <div className="flex flex-col gap-[18px]">
               {positiveSignals.map((signal, i) => (
                 <div key={signal.label}>
                   <div className="mb-2 flex items-baseline justify-between">
-                    <span className="text-[13px] text-fg-secondary">{signal.label}</span>
-                    <span className={"font-mono text-sm " + (signal.value >= 80 ? "text-good" : "text-accent-pale")}>
+                    <span className="text-[14px] text-fg-secondary">{signal.label}</span>
+                    <span className={"font-mono text-[15px] " + (signal.value >= 80 ? "text-good" : "text-accent-pale")}>
                       {signal.value}
                     </span>
                   </div>
@@ -159,14 +159,14 @@ export function AnalysisTab({
               <button
                 type="button"
                 onClick={onViewAllFindings}
-                className="cursor-pointer border-none bg-transparent font-mono text-[9.5px] text-accent-ghost hover:text-accent-pale"
+                className="cursor-pointer border-none bg-transparent font-mono text-[10.5px] text-accent-ghost hover:text-accent-pale"
               >
                 VIEW ALL {totalConcerns} →
               </button>
             )}
           </div>
           {topConcerns.length === 0 ? (
-            <div className="text-xs text-fg-disabled">No findings yet.</div>
+            <div className="text-[13px] text-fg-disabled">No findings yet.</div>
           ) : (
             <div className="flex flex-col gap-2.5">
               {topConcerns.map((finding, i) => (
@@ -179,14 +179,14 @@ export function AnalysisTab({
         <Panel className="flex flex-col p-5">
           <SectionLabel className="mb-[18px]">CRITICAL GAPS</SectionLabel>
           {criticalGaps.length === 0 ? (
-            <div className="text-xs text-fg-disabled">No critical gaps.</div>
+            <div className="text-[13px] text-fg-disabled">No critical gaps.</div>
           ) : (
             <div className="flex flex-col gap-[9px]">
               {criticalGaps.map((gap) => <GapRow key={gap} label={gap} />)}
             </div>
           )}
           <div className="flex-1" />
-          <p className="m-0 mt-[18px] text-[11.5px] text-fg-faint [text-wrap:pretty]">
+          <p className="m-0 mt-[18px] text-[12.5px] text-fg-faint [text-wrap:pretty]">
             Request these to unlock a composite score.
           </p>
         </Panel>
@@ -195,12 +195,12 @@ export function AnalysisTab({
       {/* recommended next step */}
       {recommendedNextStep && (
         <div className="mb-4 flex flex-wrap items-center gap-4 rounded-[14px] border border-accent/[0.24] bg-gradient-to-r from-accent/[0.12] to-white/[0.012] px-[22px] py-[18px]">
-          <span className="shrink-0 rounded-full border border-accent/30 px-[9px] py-[5px] font-mono text-[9.5px] tracking-label text-accent-ghost">
+          <span className="shrink-0 rounded-full border border-accent/30 px-[9px] py-[5px] font-mono text-[10.5px] tracking-label text-accent-ghost">
             NEXT STEP
           </span>
-          <span className="text-[13.5px] text-fg-secondary [text-wrap:pretty]">{recommendedNextStep}</span>
+          <span className="text-[14.5px] text-fg-secondary [text-wrap:pretty]">{recommendedNextStep}</span>
           <div className="flex-1" />
-          <PrimaryButton className="shrink-0 !py-[9px] !text-[10.5px]" onClick={onAskKora}>ASK KORA</PrimaryButton>
+          <PrimaryButton className="shrink-0 !py-[9px] !text-[11.5px]" onClick={onAskKora}>ASK KORA</PrimaryButton>
         </div>
       )}
 
@@ -216,22 +216,22 @@ export function AnalysisTab({
       {/* extracted facts */}
       <Panel className="px-[26px] py-6">
         <div className="mb-6 flex items-baseline justify-between">
-          <h2 className="text-[13.5px] font-semibold">Extracted facts</h2>
-          <span className="font-mono text-[9.5px] tracking-label text-fg-faint">SOURCE · DOCUMENT ANALYSIS</span>
+          <h2 className="text-[14.5px] font-semibold">Extracted facts</h2>
+          <span className="font-mono text-[10.5px] tracking-label text-fg-faint">SOURCE · DOCUMENT ANALYSIS</span>
         </div>
         {!f ? (
-          <div className="py-4 text-center text-[12.5px] text-fg-dim">
+          <div className="py-4 text-center text-[13.5px] text-fg-dim">
             Not yet extracted — run analysis to populate company facts.
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-x-10 gap-y-[26px]">
-            <FactField label="COMPANY"><div className="text-sm text-fg">{f.company_name ?? "—"}</div></FactField>
-            <FactField label="INDUSTRY"><div className="text-sm text-fg">{f.industry ?? "—"}</div></FactField>
+            <FactField label="COMPANY"><div className="text-[15px] text-fg">{f.company_name ?? "—"}</div></FactField>
+            <FactField label="INDUSTRY"><div className="text-[15px] text-fg">{f.industry ?? "—"}</div></FactField>
             <FactField label="SUMMARY" wide>
-              <div className="text-sm text-fg-tertiary [text-wrap:pretty]">{f.summary ?? "—"}</div>
+              <div className="text-[15px] text-fg-tertiary [text-wrap:pretty]">{f.summary ?? "—"}</div>
             </FactField>
             <FactField label="BUSINESS_MODEL" wide>
-              <div className="text-sm text-fg-tertiary [text-wrap:pretty]">{f.business_model ?? "—"}</div>
+              <div className="text-[15px] text-fg-tertiary [text-wrap:pretty]">{f.business_model ?? "—"}</div>
             </FactField>
             <FactField label="KEY_PRODUCTS"><FactChips items={f.key_products ?? []} /></FactField>
             <FactField label="REVENUE_STREAMS"><FactChips items={f.revenue_streams ?? []} /></FactField>

@@ -19,7 +19,7 @@ function NavItem({ label, icon, active, muted, onClick }: {
     <button
       type="button"
       onClick={onClick}
-      className={'relative flex cursor-pointer items-center gap-[11px] rounded-lg border-none bg-transparent px-[11px] py-[9px] text-left font-sans transition-colors ' + (muted ? 'text-[13px] text-fg-quiet hover:bg-white/[0.03] hover:text-fg-secondary' : 'text-[13.5px] text-fg-tertiary hover:bg-white/[0.035] hover:text-fg')}
+      className={'relative flex cursor-pointer items-center gap-[11px] rounded-lg border-none bg-transparent px-[11px] py-[9px] text-left font-sans transition-colors ' + (muted ? 'text-[14px] text-fg-quiet hover:bg-white/[0.03] hover:text-fg-secondary' : 'text-[14.5px] text-fg-tertiary hover:bg-white/[0.035] hover:text-fg')}
     >
       {active && (
         <span className={'absolute inset-0 rounded-lg bg-accent-rail border ' + (muted ? 'border-accent/20' : 'border-accent/[0.22] shadow-[inset_0_0_20px_-8px_rgba(77,141,255,0.7)]')} />
@@ -57,7 +57,7 @@ export function Sidebar({ active, onNavigate, versionLabel = 'KORA v2 · BUILD 2
       </nav>
 
       <div className="flex-1" />
-      <div className="px-[11px] font-mono text-[9px] tracking-label text-fg-ghost">{versionLabel}</div>
+      <div className="px-[11px] font-mono text-[10px] tracking-label text-fg-ghost">{versionLabel}</div>
     </aside>
   );
 }

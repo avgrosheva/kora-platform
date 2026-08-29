@@ -1,5 +1,5 @@
 import type { UnifiedFinding, UnifiedFindingSeverity, UnifiedFindingType } from "@/types/api";
-import { Badge } from "../../primitives";
+import { Badge, InfoTip } from "../../primitives";
 
 /**
  * The export's generic `Finding`/`FindingCard` model only a 3-level
@@ -35,14 +35,21 @@ export function UnifiedSeverityBadge({ severity }: { severity: UnifiedFindingSev
 }
 
 const typeLabel: Record<UnifiedFindingType, string> = {
-  deterministic: "DETERMINISTIC CHECK",
-  document_stated: "DOCUMENT-STATED",
-  ai_inferred: "KORA-INFERRED",
+  deterministic: "AUTOMATED CHECK",
+  document_stated: "FROM THE DOCUMENT",
+  ai_inferred: "KORA'S INFERENCE",
   derived: "DERIVED",
 };
 
 export function UnifiedTypeBadge({ type }: { type: UnifiedFindingType }) {
-  return <Badge tone="neutral">{typeLabel[type]}</Badge>;
+  return (
+    <span className="inline-flex items-center gap-1">
+      <Badge tone="neutral">{typeLabel[type]}</Badge>
+      {type === "ai_inferred" && (
+        <InfoTip text="Not stated directly — this is Kora's educated guess based on what's in the document." />
+      )}
+    </span>
+  );
 }
 
 const severityAccent: Record<UnifiedFindingSeverity, { rail: string; frame: string }> = {
@@ -88,23 +95,23 @@ export function UnifiedFindingCard({ finding, compact = false, onClick }: {
       <div className="mb-2 flex flex-wrap items-center gap-[7px]">
         <UnifiedSeverityBadge severity={finding.severity} />
         <UnifiedTypeBadge type={finding.type} />
-        <span className="font-mono text-[9px] text-fg-faint">{finding.category.replace(/_/g, " ")}</span>
+        <span className="font-mono text-[10px] text-fg-faint">{finding.category.replace(/_/g, " ")}</span>
       </div>
-      <h3 className={"mb-1 font-medium " + (compact ? "text-[13.5px]" : "text-sm")}>{finding.title}</h3>
+      <h3 className={"mb-1 font-medium " + (compact ? "text-[14.5px]" : "text-[15px]")}>{finding.title}</h3>
       {finding.evidence && (
-        <p className="m-0 mb-1 text-xs leading-relaxed text-fg-muted [text-wrap:pretty]">{finding.evidence}</p>
+        <p className="m-0 mb-1 text-[13px] leading-relaxed text-fg-muted [text-wrap:pretty]">{finding.evidence}</p>
       )}
       {finding.explanation && (
-        <p className="m-0 mb-1 text-xs leading-relaxed text-fg-muted [text-wrap:pretty]">{finding.explanation}</p>
+        <p className="m-0 mb-1 text-[13px] leading-relaxed text-fg-muted [text-wrap:pretty]">{finding.explanation}</p>
       )}
       {!compact && finding.implication && (
-        <p className="m-0 mt-2 text-[11.5px] leading-relaxed text-fg-dim [text-wrap:pretty]">
+        <p className="m-0 mt-2 text-[12.5px] leading-relaxed text-fg-dim [text-wrap:pretty]">
           <span className="font-medium text-fg-muted">Why it matters: </span>
           {finding.implication}
         </p>
       )}
       {!compact && finding.recommended_next_step && (
-        <p className="m-0 mt-2.5 rounded-[9px] bg-accent/[0.08] px-3 py-2 text-[11.5px] leading-relaxed text-fg-tertiary [text-wrap:pretty]">
+        <p className="m-0 mt-2.5 rounded-[9px] bg-accent/[0.08] px-3 py-2 text-[12.5px] leading-relaxed text-fg-tertiary [text-wrap:pretty]">
           <span className="font-medium text-accent-pale">Ask the founder: </span>
           {finding.recommended_next_step}
         </p>

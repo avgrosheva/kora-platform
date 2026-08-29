@@ -10,7 +10,7 @@ export function Settings({ organization, onSave, onDelete }: {
   const [name, setName] = useState(organization.name);
   const [slug, setSlug] = useState(organization.slug);
 
-  const field = 'w-full rounded-[9px] border border-white/[0.09] bg-white/[0.025] px-[13px] py-[11px] text-[13px] text-fg-secondary outline-none transition-colors focus:border-accent/35';
+  const field = 'w-full rounded-[9px] border border-white/[0.09] bg-white/[0.025] px-[13px] py-[11px] text-[14px] text-fg-secondary outline-none transition-colors focus:border-accent/35';
 
   return (
     <div className="relative z-10 max-w-[820px] px-9 pb-24 pt-10">
@@ -29,7 +29,7 @@ export function Settings({ organization, onSave, onDelete }: {
           </div>
           <div>
             <FieldLabel>SLUG</FieldLabel>
-            <input value={slug} onChange={(e) => setSlug(e.target.value)} className={field + ' font-mono !text-[12.5px]'} />
+            <input value={slug} onChange={(e) => setSlug(e.target.value)} className={field + ' font-mono !text-[13.5px]'} />
           </div>
         </div>
         <div className="flex justify-end px-[22px] pb-5">
@@ -40,10 +40,10 @@ export function Settings({ organization, onSave, onDelete }: {
       <section className="kora-rise kora-d2 rounded-[14px] border border-danger/[0.22] bg-gradient-to-b from-danger/[0.05] to-white/[0.008] p-[22px]">
         <div className="mb-2.5 flex items-center gap-[9px]">
           <span className="h-1.5 w-1.5 rounded-full bg-danger shadow-[0_0_10px_2px_rgba(255,92,92,0.7)]" />
-          <span className="font-mono text-[10px] tracking-label text-danger-soft">DANGER ZONE</span>
+          <span className="font-mono text-[11px] tracking-label text-danger-soft">DANGER ZONE</span>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-5">
-          <p className="m-0 max-w-[440px] text-[12.5px] text-fg-muted [text-wrap:pretty]">
+          <p className="m-0 max-w-[440px] text-[13.5px] text-fg-muted [text-wrap:pretty]">
             Permanently delete this organization, its members, and all its documents. This cannot be undone.
           </p>
           <GhostButton tone="danger" onClick={onDelete}>DELETE ORGANIZATION</GhostButton>

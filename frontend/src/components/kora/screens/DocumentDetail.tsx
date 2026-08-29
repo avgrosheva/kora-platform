@@ -2,15 +2,17 @@ import type { ReactNode } from 'react';
 import type { DetailTabId, DocumentSummary } from '../types';
 import { StatusBadge, Tabs } from '../primitives';
 
+// User-facing tab text only -- ids stay wired to the routes/handlers in
+// page.tsx, so relabeling here never touches behavior.
 const TABS: { id: DetailTabId; label: string }[] = [
   { id: 'overview', label: 'Overview' },
-  { id: 'analysis', label: 'Analysis' },
+  { id: 'analysis', label: 'Snapshot' },
   { id: 'financials', label: 'Financials' },
-  { id: 'checks', label: 'Checks' },
-  { id: 'coverage', label: 'Coverage' },
+  { id: 'checks', label: "What's Concerning" },
+  { id: 'coverage', label: "What's Missing" },
   { id: 'score', label: 'Score' },
   { id: 'dd', label: 'Due Diligence' },
-  { id: 'ddv2', label: 'Due Diligence v2' },
+  { id: 'ddv2', label: 'Full Report' },
 ];
 
 export function DocumentDetail({ document: doc, activeTab, onSelectTab, onBack, children }: {
@@ -26,11 +28,11 @@ export function DocumentDetail({ document: doc, activeTab, onSelectTab, onBack, 
         <button
           type="button"
           onClick={onBack}
-          className="cursor-pointer border-none bg-transparent p-0 font-mono text-[10.5px] tracking-kicker text-fg-faint hover:text-accent-pale"
+          className="cursor-pointer border-none bg-transparent p-0 font-mono text-[11.5px] tracking-kicker text-fg-faint hover:text-accent-pale"
         >
           DOCUMENTS /
         </button>
-        <span className="font-mono text-[10.5px] tracking-kicker text-fg-muted">{doc.filename.toUpperCase()}</span>
+        <span className="font-mono text-[11.5px] tracking-kicker text-fg-muted">{doc.filename.toUpperCase()}</span>
       </div>
 
       <div className="kora-rise mb-[22px] flex items-center gap-3">

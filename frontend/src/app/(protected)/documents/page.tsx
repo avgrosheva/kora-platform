@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { useActiveOrg } from "@/features/organizations/active-org-context";
 import { useDocuments, useUploadDocument } from "@/features/documents/hooks";
 import { Documents } from "@/components/kora/screens/Documents";
-import { Meter } from "@/components/kora/primitives";
+import { Meter, PageLoading } from "@/components/kora/primitives";
 import { NoActiveOrg } from "@/features/organizations/components/no-active-org";
 import type { DocumentSummary } from "@/components/kora/types";
 import type { DocumentRead } from "@/types/api";
@@ -36,7 +36,7 @@ export default function DocumentsPage() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   if (orgsLoading) {
-    return <div className="relative z-10 p-9 text-sm text-fg-dim">Loading…</div>;
+    return <PageLoading />;
   }
 
   if (!activeOrg) {
@@ -44,7 +44,7 @@ export default function DocumentsPage() {
   }
 
   if (isLoading) {
-    return <div className="relative z-10 p-9 text-sm text-fg-dim">Loading…</div>;
+    return <PageLoading />;
   }
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {

@@ -33,12 +33,12 @@ export function FinancialsTab({
             )}
           </div>
           {canRun || canExtractFacts ? (
-            <p className="m-0 max-w-[420px] text-center text-[11.5px] leading-relaxed text-fg-faint [text-wrap:pretty]">
-              "Extract Time-Series Facts" powers Coverage, Findings, Score, and the Decision Snapshot —
+            <p className="m-0 max-w-[420px] text-center text-[12.5px] leading-relaxed text-fg-faint [text-wrap:pretty]">
+              "Extract Time-Series Facts" powers What's Missing, What's Concerning, Score, and the Snapshot —
               run it here even if you also extract the summary metrics above.
             </p>
           ) : (
-            <p className="m-0 max-w-[420px] text-center text-[11.5px] leading-relaxed text-fg-faint [text-wrap:pretty]">
+            <p className="m-0 max-w-[420px] text-center text-[12.5px] leading-relaxed text-fg-faint [text-wrap:pretty]">
               Process the document, then run business analysis, from the Overview and Analysis tabs.
             </p>
           )}
@@ -53,19 +53,19 @@ export function FinancialsTab({
   const num = (v: number | null) => (v != null ? formatNumber(v) : null);
   const confidencePercent = metrics.confidence_score != null ? Math.round(metrics.confidence_score * 100) : null;
 
-  const rows: { key: string; value: string | null }[] = [
+  const rows: { key: string; value: string | null; tooltip?: string }[] = [
     { key: "REVENUE", value: money(metrics.revenue) },
-    { key: "ARR", value: money(metrics.arr) },
-    { key: "MRR", value: money(metrics.mrr) },
-    { key: "GROSS_MARGIN", value: pct(metrics.gross_margin) },
-    { key: "EBITDA", value: money(metrics.ebitda) },
-    { key: "BURN_RATE", value: money(metrics.burn_rate) },
-    { key: "RUNWAY", value: metrics.runway_months != null ? `${metrics.runway_months} mo` : null },
+    { key: "ARR", value: money(metrics.arr), tooltip: "How much the company earns per year at its current pace." },
+    { key: "MRR", value: money(metrics.mrr), tooltip: "How much the company earns per month at its current pace." },
+    { key: "GROSS_MARGIN", value: pct(metrics.gross_margin), tooltip: "The share of revenue left after the direct cost of delivering the product or service." },
+    { key: "EBITDA", value: money(metrics.ebitda), tooltip: "Profit before interest, taxes, depreciation, and amortization — a rough measure of core profitability." },
+    { key: "BURN_RATE", value: money(metrics.burn_rate), tooltip: "How much cash the company is spending per month beyond what it earns." },
+    { key: "RUNWAY", value: metrics.runway_months != null ? `${metrics.runway_months} mo` : null, tooltip: "How many months the company can keep operating before it runs out of cash." },
     { key: "CASH", value: money(metrics.cash) },
     { key: "CUSTOMERS", value: num(metrics.customers) },
     { key: "GROWTH_RATE", value: pct(metrics.growth_rate) },
-    { key: "CAC", value: money(metrics.cac) },
-    { key: "LTV", value: money(metrics.ltv) },
+    { key: "CAC", value: money(metrics.cac), tooltip: "How much it costs, on average, to acquire one new customer." },
+    { key: "LTV", value: money(metrics.ltv), tooltip: "How much revenue a typical customer is expected to generate over their lifetime." },
     { key: "VALUATION", value: money(metrics.valuation) },
   ];
 
@@ -73,8 +73,8 @@ export function FinancialsTab({
     <div>
       <div className="mb-3.5 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-2.5">
-          <span className="font-mono text-[10px] tracking-label text-fg-dim">CONFIDENCE</span>
-          <span className="font-mono text-[13px] text-accent-pale">{confidencePercent != null ? `${confidencePercent}%` : "—"}</span>
+          <span className="font-mono text-[11px] tracking-label text-fg-dim">CONFIDENCE</span>
+          <span className="font-mono text-[14px] text-accent-pale">{confidencePercent != null ? `${confidencePercent}%` : "—"}</span>
           {confidencePercent != null && (
             <span className="inline-block h-1 w-[90px] overflow-hidden rounded bg-white/[0.08]">
               <span
@@ -98,7 +98,7 @@ export function FinancialsTab({
 
       <Panel className="grid grid-cols-[repeat(auto-fit,minmax(190px,1fr))] py-1.5">
         {rows.map((m) => (
-          <MetricCell key={m.key} label={m.key} value={m.value} />
+          <MetricCell key={m.key} label={m.key} value={m.value} tooltip={m.tooltip} />
         ))}
       </Panel>
     </div>

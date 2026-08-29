@@ -1,7 +1,6 @@
 import type { Config } from "tailwindcss";
 import tailwindcssAnimate from "tailwindcss-animate";
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const koraTokens = require("./tailwind.config.tokens");
+import koraTokens from "./tailwind.config.tokens";
 
 // `koraTokens.colors.accent` (the redesign's brand blue) and our existing
 // shadcn `colors.accent` (an hsl(var(--accent)) hover-state color) share a

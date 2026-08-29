@@ -192,6 +192,12 @@ export function useAnalyzeWithCitations(documentId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["documents", "detail", documentId, "analysis"] });
       queryClient.invalidateQueries({ queryKey: ["documents", "detail", documentId, "coverage"] });
+      queryClient.invalidateQueries({ queryKey: ["documents", "detail", documentId, "missing-information"] });
+      // Same gap as useExtractFinancialFacts above: this call also derives
+      // findings (qualitative-risk-based ones in particular), so without
+      // this the Snapshot tab's "Top Concerns" and the Checks tab stay
+      // stale until a hard reload.
+      queryClient.invalidateQueries({ queryKey: ["documents", "detail", documentId, "findings"] });
     },
   });
 }

@@ -9,7 +9,7 @@ import { useDocuments } from "@/features/documents/hooks";
 import { UploadButton } from "@/features/documents/components/upload-button";
 import { CreateOrgDialog } from "@/features/organizations/components/create-org-dialog";
 import { Portfolio, NoOrganizations } from "@/components/kora/screens/Portfolio";
-import { EmptyState } from "@/components/kora/primitives";
+import { EmptyState, PageLoading } from "@/components/kora/primitives";
 import { formatCurrency, formatFileSize } from "@/lib/utils";
 import type { PortfolioMetrics, PortfolioRow, HealthBucket } from "@/components/kora/screens/Portfolio";
 import type { PortfolioDocumentRow, PortfolioResponse } from "@/types/api";
@@ -59,7 +59,7 @@ export default function PortfolioPage() {
   const [createOpen, setCreateOpen] = useState(false);
 
   if (orgsLoading) {
-    return <div className="relative z-10 p-9 text-sm text-fg-dim">Loading…</div>;
+    return <PageLoading />;
   }
 
   if (organizations.length === 0) {
@@ -74,7 +74,7 @@ export default function PortfolioPage() {
   }
 
   if (!activeOrg || (isLoading && !portfolio)) {
-    return <div className="relative z-10 p-9 text-sm text-fg-dim">Loading…</div>;
+    return <PageLoading />;
   }
 
   if (!portfolio) {

@@ -41,7 +41,7 @@ export function OverviewTab({
       </Panel>
 
       {processingError && (
-        <div className="mb-5 rounded-[9px] border border-danger/30 bg-danger/[0.08] px-4 py-3 text-[13px] text-danger-soft [text-wrap:pretty]">
+        <div className="mb-5 rounded-[9px] border border-danger/30 bg-danger/[0.08] px-4 py-3 text-[14px] text-danger-soft [text-wrap:pretty]">
           {processingError}
         </div>
       )}
@@ -62,5 +62,5 @@ export function OverviewTab({
 }
 
 function Mono({ children }: { children: string | null }) {
-  return <div className={'font-mono text-[13px] ' + (children ? 'text-fg-secondary' : 'text-fg-disabled')}>{children ?? '—'}</div>;
+  return <div className={'font-mono text-[14px] ' + (children ? 'text-fg-secondary' : 'text-fg-disabled')}>{children ?? '—'}</div>;
 }

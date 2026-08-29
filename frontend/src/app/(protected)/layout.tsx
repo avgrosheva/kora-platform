@@ -22,8 +22,9 @@ export default function ProtectedLayout({ children }: { children: React.ReactNod
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">
-        Loading…
+      <div className="flex min-h-screen items-center justify-center gap-3 bg-ink-950">
+        <span className="kora-blink h-[7px] w-[7px] rounded-full bg-accent-bright shadow-[0_0_12px_2px_rgba(77,141,255,0.7)]" />
+        <span className="font-mono text-[11px] tracking-kicker text-fg-dim">LOADING…</span>
       </div>
     );
   }

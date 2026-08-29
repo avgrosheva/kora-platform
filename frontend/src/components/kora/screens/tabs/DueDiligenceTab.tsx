@@ -38,18 +38,18 @@ export function DueDiligenceTab({ report, isGenerating = false, onGenerate, onEx
       <div className="flex flex-col gap-3.5">
         {report.sections.map((section) => (
           <Panel key={section.title} className="px-6 py-5">
-            <h2 className="mb-2 text-[13.5px] font-semibold">{section.title}</h2>
-            <p className="m-0 whitespace-pre-line text-[13px] leading-relaxed text-fg-tertiary [text-wrap:pretty]">{section.content}</p>
+            <h2 className="mb-2 text-[14.5px] font-semibold">{section.title}</h2>
+            <p className="m-0 whitespace-pre-line text-[14px] leading-relaxed text-fg-tertiary [text-wrap:pretty]">{section.content}</p>
           </Panel>
         ))}
       </div>
 
       {report.sources.length > 0 && (
         <Panel className="mt-3.5 px-6 py-5">
-          <h2 className="mb-3 text-[13.5px] font-semibold">Sources</h2>
+          <h2 className="mb-3 text-[14.5px] font-semibold">Sources</h2>
           <ul className="m-0 flex list-none flex-col gap-2 pl-0">
             {report.sources.map((source, i) => (
-              <li key={`${source.document_id}-${source.chunk_index}`} className="text-[11.5px] leading-relaxed text-fg-dim">
+              <li key={`${source.document_id}-${source.chunk_index}`} className="text-[12.5px] leading-relaxed text-fg-dim">
                 <span className="font-mono text-fg-muted">[{i + 1}] similarity {source.similarity_score.toFixed(2)}:</span> {source.snippet}
               </li>
             ))}

@@ -4,12 +4,13 @@ import { format } from "date-fns";
 import { toast } from "sonner";
 import { useAuth } from "@/features/auth/auth-context";
 import { Profile } from "@/components/kora/screens/Profile";
+import { PageLoading } from "@/components/kora/primitives";
 
 export default function ProfilePage() {
   const { user, logout } = useAuth();
 
   if (!user) {
-    return <div className="relative z-10 p-9 text-sm text-fg-dim">Loading…</div>;
+    return <PageLoading />;
   }
 
   return (

@@ -13,21 +13,21 @@ export function AcceptInvitation({ status, errorMessage, onGoToPortfolio }: {
         {status === 'no-token' && (
           <>
             <ErrorGlyph />
-            <p className="mt-4 text-[13px] text-fg-muted">No invitation token provided.</p>
+            <p className="mt-4 text-[14px] text-fg-muted">No invitation token provided.</p>
           </>
         )}
 
         {status === 'pending' && (
           <>
             <div className="mx-auto h-12 w-12 animate-spin rounded-full border-2 border-accent/20 border-t-accent" />
-            <p className="mt-4 text-[13px] text-fg-dim">Accepting invitation…</p>
+            <p className="mt-4 text-[14px] text-fg-dim">Accepting invitation…</p>
           </>
         )}
 
         {status === 'success' && (
           <>
             <SuccessGlyph />
-            <p className="mt-4 text-[13px] text-fg-secondary">You've joined the organization.</p>
+            <p className="mt-4 text-[14px] text-fg-secondary">You've joined the organization.</p>
             <PrimaryButton className="mt-6" onClick={onGoToPortfolio}>GO TO PORTFOLIO</PrimaryButton>
           </>
         )}
@@ -35,7 +35,7 @@ export function AcceptInvitation({ status, errorMessage, onGoToPortfolio }: {
         {status === 'error' && (
           <>
             <ErrorGlyph />
-            <p className="mt-4 text-[13px] text-fg-muted [text-wrap:pretty]">{errorMessage ?? 'Could not accept invitation.'}</p>
+            <p className="mt-4 text-[14px] text-fg-muted [text-wrap:pretty]">{errorMessage ?? 'Could not accept invitation.'}</p>
           </>
         )}
       </Panel>
