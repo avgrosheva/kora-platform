@@ -4,6 +4,9 @@ Kora turns a company's raw pitch deck or financial documents into a structured, 
 
 It is an independently designed and built product: backend, data model, AI pipeline, and frontend design system are all original work, built end-to-end by one person.
 
+![Portfolio/ Dashboard](C:\Users\grosh\kora-platform\docs\images\portfolio.png)
+
+
 ## The problem
 
 Early-stage due diligence is still mostly manual. An analyst opens a pitch deck, reads it, re-types the numbers into a spreadsheet, cross-checks whether the growth story actually adds up, and separately keeps a mental list of what the founder still hasn't disclosed. That process is slow, inconsistent between analysts, and easy to get wrong — a plausible-sounding deck is not the same as an internally consistent one, and it's easy to miss that "12-month runway" and "$1M/month burn" and "$6M cash" don't actually agree with each other.
