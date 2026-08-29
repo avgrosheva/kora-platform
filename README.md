@@ -21,12 +21,30 @@ Kora is built for the analyst side of early-stage investing and corporate develo
 
 **Document → Extract → Validate → Analyze → Ask → Report**
 
+![Document storage](/docs/images/documents.png)
+
 1. **Document** — an analyst uploads a pitch deck, financial statement, or data-room export (PDF, DOCX, or TXT) into an organization (a workspace shared with their team).
 2. **Extract** — an LLM extracts structured financial facts (revenue, ARR, MRR, burn rate, runway, CAC, LTV, and more) and qualitative facts (business model, market, team, risks), each one tied back to the page/passage it was extracted from via a source citation — not just a number floating with no provenance.
+
+![Document detail — Snapshot/Analysis tab](/docs/images/snapshot.png)
+
 3. **Validate** — a separate, deterministic (non-LLM) rules engine checks the extracted facts against each other: does the stated LTV:CAC ratio match what the underlying numbers actually compute to? Is a growth claim backed by more than one data point? Is a "profitable" claim contradicted by the reported net income? These checks are plain Python business logic, unit-tested, and never delegated to a model that could talk itself into a wrong answer.
+
+![Findings / What's Concerning tab](/docs/images/findings.png)
+
 4. **Analyze** — Kora assesses evidence coverage against a due-diligence checklist (company, financial, market, team), computes a category-weighted investment score from the verified facts — and deliberately withholds that score, showing no number instead of a misleading one, when coverage is too thin or critical fields are missing.
+
+![Coverage / What's Missing](/docs/images/covarage.png)
+
+![Score](/docs/images/score.png)
+
 5. **Ask** — once a document is indexed, the analyst can ask an AI chat assistant follow-up questions grounded in the source documents (retrieval-augmented generation), with every answer citing the passages it drew from — including an "analytical" mode that can query the extracted financial data directly instead of only paraphrasing text.
+
+![AI chat](/docs/images/chat.png)
+
 6. **Report** — the full analysis — extracted facts, findings, coverage, score, and cited chat context — can be exported as a due-diligence report (Markdown or PDF), and every analyzed document rolls up into a per-organization portfolio view.
+
+![Full report](/docs/images/report.png)
 
 ## Key capabilities
 
